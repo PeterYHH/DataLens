@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DataLens - 智慧型資料表格閱讀器</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap');
+        
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #f3f4f6;
+        }
+
+        /* 自定義滾動條 - 優化觸控與點擊體驗 */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 12px;
+            height: 12px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 6px;
+            border: 3px solid #f1f1f1; /* 增加邊距感 */
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        .sort-icon {
+            opacity: 0.3;
+            transition: opacity 0.2s;
+        }
+        th:hover .sort-icon {
+            opacity: 1;
+        }
+        th.sorted-asc .sort-icon, th.sorted-desc .sort-icon {
+            opacity: 1;
+            color: #4f46e5;
+        }
+        
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #4f46e5;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            display: none;
+            margin: 0 auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .sticky-left-shadow {
+            box-shadow: 2px 0 5px -2px rgba(0,0,0,0.1);
+        }
+
+        .toast-enter { transform: translate(-50%, 1rem); opacity: 0; }
+        .toast-enter-active { transform: translate(-50%, 0); opacity: 1; }
+    </style>
+</head>
+<body class="text-gray-800 h-screen flex flex-col overflow-hidden">
+
+    <!-- Header -->
+    <header class="bg-white shadow-sm z-20 flex-none">
+        <div class="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
+            <div class="flex items-center space-x-3">
+                <div class="bg-indigo-600 text-white p-2 rounded-lg shadow-md">
+                    <i class="fas fa-table fa-lg"></i>
+                </div>
+                <h1 class="text-xl font-bold text-gray-900 tracking-tight">DataLens <span class="hidden sm:inline text-sm font-normal text-gray-500 ml-2">CSV/JSON 轉表格工具</span></h1>
+            </div>
+            <div class="text-xs sm:text-sm text-gray-500 flex items-center">
+                <span class="hidden sm:inline">支援 CSV/JSON・智慧解析・多表切換</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-grow flex flex-col p-3 sm:p-6 overflow-hidden max-w-7xl mx-auto w-full space-y-3 sm:space-y-4">
+        
+        <!-- Controls Section -->
+        <div class="bg-white rounded-xl shadow-sm p-4 border border-gray-100 flex-none space-y-4">
+            
+            <!-- Input Area -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- File Upload -->
+                <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 sm:p-6 flex flex-col justify-center items-center cursor-pointer hover:bg-gray-50 transition-colors group" id="dropZone">
+                    <input type="file" id="fileInput" accept=".csv,.txt,.json" class="hidden">
+                    <div class="bg-indigo-50 p-3 rounded-full mb-3 group-hover:scale-110 transition-transform duration-200">
+                        <i class="fas fa-cloud-upload-alt text-2xl text-indigo-500"></i>
+                    </div>
+                    <p class="text-sm font-medium text-gray-700 text-center">點擊上傳或拖放檔案</p>
+                    <p class="text-xs text-gray-400 mt-1">支援 .csv, .txt, .json</p>
+                </div>
+
+                <!-- Text Paste & Settings -->
+                <div class="flex flex-col space-y-3">
+                    <textarea id="pasteInput" placeholder="在此貼上 CSV 文字或 JSON 資料..." class="w-full h-24 p-3 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none font-mono custom-scrollbar"></textarea>
+                    
+                    <div class="flex flex-wrap gap-2 items-center">
+                        <!-- Encoding (CSV only) -->
+                        <div class="relative flex-grow sm:flex-grow-0">
+                            <select id="encodingSelect" class="w-full text-sm border-gray-300 border rounded-md shadow-sm pl-3 pr-8 py-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white appearance-none cursor-pointer">
+                                <option value="UTF-8">UTF-8 (通用)</option>
+                                <option value="Big5">Big5 (繁中 CSV)</option>
+                            </select>
+                            <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
+                                <i class="fas fa-chevron-down text-xs"></i>
+                            </div>
+                        </div>
+
+                        <!-- Header Check (CSV only) -->
+                        <label class="flex items-center space-x-2 text-sm text-gray-700 cursor-pointer select-none bg-white border border-gray-300 rounded-md px-3 py-2 shadow-sm hover:bg-gray-50 whitespace-nowrap" id="headerCheckContainer">
+                            <input type="checkbox" id="headerCheck" checked class="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4 cursor-pointer">
+                            <span>首行標題</span>
+                        </label>
+
+                        <button id="convertBtn" class="flex-grow bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors shadow-sm whitespace-nowrap flex items-center justify-center">
+                            <i class="fas fa-magic mr-2"></i>轉換
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Toolbar (Hidden by default) -->
+            <div id="toolbar" class="hidden border-t pt-3 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3">
+                
+                <!-- Search -->
+                <div class="relative w-full lg:w-64">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <i class="fas fa-search text-gray-400"></i>
+                    </div>
+                    <input type="text" id="searchInput" class="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="搜尋內容...">
+                </div>
+                
+                <!-- Info & Selectors -->
+                <div class="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+                    <!-- JSON Table Selector (Hidden by default) -->
+                    <div id="tableSelectorContainer" class="hidden flex items-center bg-yellow-50 border border-yellow-200 rounded-md px-2 py-1">
+                        <span class="text-xs font-semibold text-yellow-700 mr-2 whitespace-nowrap"><i class="fas fa-database mr-1"></i>資料來源:</span>
+                        <select id="tableSelector" class="text-sm bg-transparent border-none text-yellow-800 font-medium focus:ring-0 cursor-pointer py-1 pr-6 truncate max-w-[150px] sm:max-w-[200px]">
+                            <!-- Options injected here -->
+                        </select>
+                    </div>
+
+                    <span id="recordCount" class="text-sm text-gray-600 whitespace-nowrap">共 0 筆</span>
+                    
+                    <span id="formatTag" class="px-2 py-0.5 rounded text-xs font-semibold bg-gray-200 text-gray-600 whitespace-nowrap">未知</span>
+                    
+                    <button onclick="document.getElementById('fileInput').click()" class="text-indigo-600 hover:text-indigo-800 text-sm font-medium whitespace-nowrap ml-auto lg:ml-0">
+                        重選
+                    </button>
+
+                    <!-- Clear Button -->
+                    <button id="clearBtn" class="text-red-500 hover:text-red-700 text-sm font-medium whitespace-nowrap ml-2 flex items-center">
+                        <i class="fas fa-trash-alt mr-1"></i>清空
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Table Display Area -->
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100 flex-grow overflow-hidden relative flex flex-col">
+            
+            <div id="loader" class="loader absolute inset-0 m-auto z-50"></div>
+            
+            <div id="emptyState" class="absolute inset-0 flex flex-col items-center justify-center text-gray-400 p-4 text-center">
+                <div class="bg-gray-50 p-4 rounded-full mb-4">
+                    <i class="fas fa-table text-4xl sm:text-5xl text-gray-300"></i>
+                </div>
+                <p class="text-lg font-medium text-gray-500">準備就緒</p>
+                <p class="text-sm">請上傳 CSV 或貼上 JSON 資料以開始檢視</p>
+            </div>
+
+            <!-- Table Container: Critical for scrolling -->
+            <div class="overflow-auto flex-grow custom-scrollbar w-full h-full relative" id="tableContainer">
+                <table class="min-w-full divide-y divide-gray-200 hidden border-separate border-spacing-0" id="dataTable">
+                    <thead class="bg-gray-50 sticky top-0 z-30 shadow-sm">
+                        <tr id="tableHeader">
+                            <!-- Headers -->
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200" id="tableBody">
+                        <!-- Rows -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+    
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-10 left-1/2 transform -translate-x-1/2 bg-gray-800/90 backdrop-blur-sm text-white px-4 py-2 rounded-full shadow-lg transition-all duration-300 opacity-0 pointer-events-none z-50 text-sm flex items-center">
+        <i class="fas fa-check-circle text-green-400 mr-2"></i>
+        <span id="toastMsg">已複製</span>
+    </div>
+
+    <script>
+        // DOM Elements
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const pasteInput = document.getElementById('pasteInput');
+        const convertBtn = document.getElementById('convertBtn');
+        const encodingSelect = document.getElementById('encodingSelect');
+        const headerCheck = document.getElementById('headerCheck');
+        const tableContainer = document.getElementById('tableContainer');
+        const dataTable = document.getElementById('dataTable');
+        const tableHeader = document.getElementById('tableHeader');
+        const tableBody = document.getElementById('tableBody');
+        const emptyState = document.getElementById('emptyState');
+        const toolbar = document.getElementById('toolbar');
+        const searchInput = document.getElementById('searchInput');
+        const recordCount = document.getElementById('recordCount');
+        const formatTag = document.getElementById('formatTag');
+        const loader = document.getElementById('loader');
+        const toast = document.getElementById('toast');
+        const toastMsg = document.getElementById('toastMsg');
+        const tableSelector = document.getElementById('tableSelector');
+        const tableSelectorContainer = document.getElementById('tableSelectorContainer');
+        const clearBtn = document.getElementById('clearBtn');
+
+        let currentData = [];
+        let headers = [];
+        let sortCol = -1;
+        let sortAsc = true;
+        let toastTimeout;
+        let detectedArrays = {}; // Store all found arrays in JSON
+        const STORAGE_KEY = 'datalens_raw_data';
+
+        // --- Event Listeners ---
+
+        // Load data on startup
+        window.addEventListener('DOMContentLoaded', () => {
+            // Updated to sessionStorage
+            const stored = sessionStorage.getItem(STORAGE_KEY);
+            if (stored) {
+                pasteInput.value = stored;
+                detectAndProcess(stored, false); // false = don't save again
+                showToast('已還原上次的資料 (Session)');
+            }
+        });
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('bg-indigo-50', 'border-indigo-400'); });
+        dropZone.addEventListener('dragleave', () => { dropZone.classList.remove('bg-indigo-50', 'border-indigo-400'); });
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('bg-indigo-50', 'border-indigo-400');
+            if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+        });
+
+        fileInput.addEventListener('change', (e) => { if (e.target.files.length) handleFile(e.target.files[0]); });
+
+        convertBtn.addEventListener('click', () => {
+            const text = pasteInput.value;
+            if (text.trim()) detectAndProcess(text, true);
+            else alert('請先上傳檔案或貼上內容');
+        });
+
+        searchInput.addEventListener('input', (e) => filterTable(e.target.value.toLowerCase()));
+        
+        // Table Switching
+        tableSelector.addEventListener('change', (e) => {
+            const key = e.target.value;
+            if (detectedArrays[key]) {
+                processJsonArray(detectedArrays[key], key);
+            }
+        });
+
+        // Click to Copy
+        tableBody.addEventListener('click', (e) => {
+            const td = e.target.closest('td');
+            if (!td) return;
+            const text = td.innerText;
+            if (text) copyToClipboard(text);
+        });
+
+        // Clear Storage
+        clearBtn.addEventListener('click', () => {
+            if (confirm('確定要清空目前的所有資料與暫存嗎？')) {
+                // Updated to sessionStorage
+                sessionStorage.removeItem(STORAGE_KEY);
+                resetUI();
+                showToast('已清空所有資料');
+            }
+        });
+
+        function resetUI() {
+            currentData = [];
+            headers = [];
+            detectedArrays = {};
+            pasteInput.value = '';
+            fileInput.value = '';
+            searchInput.value = '';
+            tableSelector.innerHTML = '';
+            tableSelectorContainer.classList.add('hidden');
+            
+            dataTable.classList.add('hidden');
+            toolbar.classList.add('hidden');
+            emptyState.style.display = 'flex'; // Restore flex display
+        }
+
+        function copyToClipboard(text) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
+                const displayMsg = text.length > 20 ? text.substring(0, 20) + '...' : text;
+                showToast(`已複製：${displayMsg}`);
+            } catch (err) {
+                showToast('複製失敗');
+            }
+            document.body.removeChild(textarea);
+        }
+
+        function showToast(message) {
+            toastMsg.innerText = message;
+            toast.classList.remove('opacity-0', 'translate-y-4');
+            clearTimeout(toastTimeout);
+            toastTimeout = setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-4');
+            }, 2000);
+        }
+
+        // --- Processing Logic ---
+
+        function handleFile(file) {
+            loader.style.display = 'block';
+            emptyState.style.display = 'none';
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                detectAndProcess(e.target.result, true);
+                loader.style.display = 'none';
+                fileInput.value = ''; 
+            };
+            reader.onerror = () => { alert('讀取失敗'); loader.style.display = 'none'; };
+            reader.readAsText(file, encodingSelect.value);
+        }
+
+        function detectAndProcess(text, shouldSave = false) {
+            const trimmed = text.trim();
+            
+            // Save to Storage
+            if (shouldSave) {
+                try {
+                    // Updated to sessionStorage
+                    sessionStorage.setItem(STORAGE_KEY, trimmed);
+                } catch (e) {
+                    console.warn(e);
+                    showToast('檔案過大，無法暫存');
+                }
+            }
+            
+            // Try JSON
+            if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+                try {
+                    const json = JSON.parse(trimmed);
+                    analyzeAndProcessJSON(json);
+                    updateFormatTag('JSON');
+                    return;
+                } catch (e) { console.log('JSON Parse failed, trying CSV'); }
+            }
+
+            // Fallback CSV
+            processCSV(text);
+            updateFormatTag('CSV');
+            tableSelectorContainer.classList.add('hidden'); // Hide selector for CSV
+        }
+
+        function updateFormatTag(type) {
+            formatTag.textContent = type;
+            formatTag.className = type === 'JSON' 
+                ? 'px-2 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-700 whitespace-nowrap'
+                : 'px-2 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-700 whitespace-nowrap';
+        }
+
+        // --- Advanced JSON Analysis ---
+        function analyzeAndProcessJSON(json) {
+            detectedArrays = {};
+            tableSelector.innerHTML = '';
+            
+            // 1. Root Array
+            if (Array.isArray(json)) {
+                detectedArrays['Root Data'] = json;
+            } 
+            // 2. Object with keys
+            else if (typeof json === 'object' && json !== null) {
+                const rootObject = {};
+
+                Object.keys(json).forEach(key => {
+                    const value = json[key];
+                    
+                    // 1. Always collect to Root Object (Requirement: Show ALL fields in first layer)
+                    rootObject[key] = value;
+                    
+                    // 2. Detect separate tables (Array discovery)
+                    // Case A: It's an array -> Add as separate table
+                    if (Array.isArray(value) && value.length > 0) {
+                        detectedArrays[key] = value;
+                    } 
+                    // Case B: Nested object containing arrays (e.g., barChart.data)
+                    else if (typeof value === 'object' && value !== null) {
+                         // Check one level deep for arrays
+                         Object.keys(value).forEach(subKey => {
+                            if (Array.isArray(value[subKey]) && value[subKey].length > 0) {
+                                detectedArrays[`${key}.${subKey}`] = value[subKey];
+                            }
+                         });
+                    }
+                });
+
+                // Add Root table
+                if (Object.keys(rootObject).length > 0) {
+                    detectedArrays['摘要資訊 (Root)'] = [rootObject];
+                }
+
+                // If no arrays found anywhere, fallback to treating the object as a single row
+                if (Object.keys(detectedArrays).length === 0) {
+                    detectedArrays['Root Object'] = [json];
+                }
+            } else {
+                alert('無效的 JSON 結構');
+                return;
+            }
+
+            // 3. Populate Selector and Pick Best Candidate
+            let keys = Object.keys(detectedArrays);
+            
+            // Sort to ensure '摘要資訊 (Root)' is first if it exists
+            if (keys.includes('摘要資訊 (Root)')) {
+                keys = ['摘要資訊 (Root)', ...keys.filter(k => k !== '摘要資訊 (Root)')];
+            }
+
+            let bestKey = keys[0];
+            let maxScore = -1;
+
+            keys.forEach(key => {
+                const arr = detectedArrays[key];
+                // Heuristic logic fallback
+                let colCount = 1;
+                if (arr.length > 0 && typeof arr[0] === 'object' && arr[0] !== null) {
+                    colCount = Object.keys(arr[0]).length;
+                }
+                const score = arr.length * colCount;
+                
+                // Track heuristic winner
+                if (score > maxScore) {
+                    maxScore = score;
+                    bestKey = key;
+                }
+
+                // Add to dropdown
+                const option = document.createElement('option');
+                option.value = key;
+                option.text = `${key} (${arr.length} 筆)`;
+                tableSelector.appendChild(option);
+            });
+
+            // 4. PREFERENCE: Override bestKey if Root Summary exists
+            if (detectedArrays['摘要資訊 (Root)']) {
+                bestKey = '摘要資訊 (Root)';
+            }
+
+            // Show selector only if multiple arrays found
+            if (keys.length > 1) {
+                tableSelectorContainer.classList.remove('hidden');
+                tableSelector.value = bestKey; // Select the best one
+            } else {
+                tableSelectorContainer.classList.add('hidden');
+            }
+
+            // Process the winner
+            processJsonArray(detectedArrays[bestKey], bestKey);
+        }
+
+        function processJsonArray(dataArray, arrayName) {
+            currentData = [];
+            headers = [];
+
+            try {
+                // Determine Headers
+                const headerSet = new Set();
+                dataArray.forEach(item => {
+                    if (typeof item === 'object' && item !== null) {
+                        Object.keys(item).forEach(key => headerSet.add(key));
+                    } else {
+                        headerSet.add("Value");
+                    }
+                });
+                
+                headers = Array.from(headerSet);
+                
+                // Map Data
+                currentData = dataArray.map(item => {
+                    if (typeof item !== 'object' || item === null) return [item];
+                    return headers.map(key => {
+                        let val = item[key];
+                        if (val === null || val === undefined) return '';
+                        if (typeof val === 'object') return JSON.stringify(val);
+                        return val;
+                    });
+                });
+
+                renderTable(headers, currentData);
+                updateUIState(currentData.length);
+
+            } catch (err) {
+                console.error(err);
+                alert(`處理 ${arrayName} 時發生錯誤`);
+            }
+        }
+
+        // --- CSV Logic ---
+        function processCSV(text) {
+            currentData = [];
+            headers = [];
+            
+            try {
+                const arr = [];
+                let quote = false;
+                let col = 0, row = 0;
+                let cc = text.split('');
+                arr[row] = arr[row] || [];
+                arr[row][col] = '';
+
+                for (let i = 0; i < cc.length; i++) {
+                    let cur = cc[i];
+                    let next = cc[i+1];
+                    if (cur === '"' && quote && next === '"') { arr[row][col] += '"'; i++; continue; }
+                    if (cur === '"') { quote = !quote; continue; }
+                    if (cur === ',' && !quote) { col++; arr[row][col] = ''; continue; }
+                    if ((cur === '\r' || cur === '\n') && !quote) {
+                        if (cur === '\r' && next === '\n') i++;
+                        row++; col = 0; arr[row] = arr[row] || []; arr[row][col] = ''; continue;
+                    }
+                    arr[row][col] += cur;
+                }
+                if (arr.length > 0 && arr[arr.length-1].length === 1 && arr[arr.length-1][0] === '') arr.pop();
+                
+                if (arr.length === 0) { alert('無效內容'); return; }
+
+                if (headerCheck.checked) {
+                    headers = arr[0];
+                    currentData = arr.slice(1);
+                } else {
+                    headers = Array.from({length: arr[0].length}, (_, i) => `Col ${i+1}`);
+                    currentData = arr;
+                }
+                
+                renderTable(headers, currentData);
+                updateUIState(currentData.length);
+
+            } catch (err) {
+                alert('CSV 解析錯誤');
+            }
+        }
+
+        function updateUIState(count) {
+            emptyState.style.display = 'none';
+            dataTable.classList.remove('hidden');
+            toolbar.classList.remove('hidden');
+            recordCount.innerText = `共 ${count} 筆`;
+            
+            // Force scroll container to check dimensions
+            tableContainer.scrollLeft = 0;
+        }
+
+        // --- Rendering ---
+        function renderTable(headers, rows) {
+            tableHeader.innerHTML = '';
+
+            // 1. Sticky Number Column
+            const thNo = document.createElement('th');
+            thNo.className = 'px-3 py-3 text-center text-xs font-bold text-gray-500 bg-gray-100 sticky left-0 z-40 border-b border-gray-200 sticky-left-shadow min-w-[50px]';
+            thNo.innerText = '#';
+            tableHeader.appendChild(thNo);
+
+            // 2. Data Headers
+            headers.forEach((header, index) => {
+                const th = document.createElement('th');
+                th.className = 'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 transition-colors group whitespace-nowrap border-b border-gray-200';
+                th.onclick = () => sortTable(index);
+                th.innerHTML = `<div class="flex items-center space-x-1"><span>${escapeHtml(header)}</span><i class="fas fa-sort sort-icon text-gray-400 group-hover:text-gray-600 ml-1"></i></div>`;
+                tableHeader.appendChild(th);
+            });
+
+            // 3. Render Body
+            tableBody.innerHTML = '';
+            const fragment = document.createDocumentFragment();
+
+            rows.forEach((row, rowIndex) => {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-indigo-50 transition-colors duration-150';
+                
+                // Number Cell
+                const tdNo = document.createElement('td');
+                tdNo.className = 'px-3 py-3 whitespace-nowrap text-xs text-gray-500 font-mono text-center border-b border-gray-100 sticky left-0 z-20 sticky-left-shadow bg-gray-50 cursor-pointer hover:bg-indigo-100 hover:text-indigo-700'; 
+                tdNo.textContent = rowIndex + 1;
+                tdNo.title = "點擊複製行號";
+                tr.appendChild(tdNo);
+
+                // Data Cells
+                for (let i = 0; i < headers.length; i++) {
+                    const td = document.createElement('td');
+                    td.className = 'px-4 py-3 whitespace-nowrap text-sm text-gray-700 border-b border-gray-100 cursor-pointer hover:bg-indigo-100 hover:text-indigo-900 transition-colors max-w-xs truncate';
+                    
+                    let cellValue = row[i];
+                    td.textContent = (cellValue === undefined || cellValue === null) ? '' : cellValue;
+                    td.title = td.textContent; // Tooltip for truncated content
+                    tr.appendChild(td);
+                }
+                fragment.appendChild(tr);
+            });
+            tableBody.appendChild(fragment);
+        }
+
+        // --- Sort & Filter ---
+        function filterTable(term) {
+            if (!term) {
+                renderTable(headers, currentData); // Re-render all to fix row numbers
+                recordCount.innerText = `共 ${currentData.length} 筆`;
+                return;
+            }
+            const filtered = currentData.filter(row => row.some(cell => String(cell).toLowerCase().includes(term)));
+            
+            // Custom render for filtered (row numbers will be 1..N of filtered result)
+            // Or we could pass index? Let's just re-render body with new dataset
+            // Note: sort will be lost on filter currently, simplier UX
+            
+            // Re-use renderTable logic but with filtered data
+            // We need to keep headers consistent
+            renderTableBodyOnly(filtered);
+            recordCount.innerText = `搜尋結果：${filtered.length} 筆`;
+        }
+        
+        function renderTableBodyOnly(rows) {
+            tableBody.innerHTML = '';
+            const fragment = document.createDocumentFragment();
+            rows.forEach((row, rowIndex) => {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-indigo-50 transition-colors duration-150';
+                const tdNo = document.createElement('td');
+                tdNo.className = 'px-3 py-3 whitespace-nowrap text-xs text-gray-500 font-mono text-center border-b border-gray-100 sticky left-0 z-20 sticky-left-shadow bg-gray-50 cursor-pointer hover:bg-indigo-100'; 
+                tdNo.textContent = rowIndex + 1;
+                tr.appendChild(tdNo);
+                for (let i = 0; i < headers.length; i++) {
+                    const td = document.createElement('td');
+                    td.className = 'px-4 py-3 whitespace-nowrap text-sm text-gray-700 border-b border-gray-100 cursor-pointer hover:bg-indigo-100 max-w-xs truncate';
+                    let val = row[i];
+                    td.textContent = (val === undefined || val === null) ? '' : val;
+                    td.title = td.textContent;
+                    tr.appendChild(td);
+                }
+                fragment.appendChild(tr);
+            });
+            tableBody.appendChild(fragment);
+        }
+
+        function sortTable(colIndex) {
+            const ths = tableHeader.querySelectorAll('th');
+            ths.forEach(th => th.classList.remove('sorted-asc', 'sorted-desc'));
+            const currentTh = ths[colIndex + 1]; 
+
+            if (sortCol === colIndex) sortAsc = !sortAsc;
+            else { sortCol = colIndex; sortAsc = true; }
+
+            currentTh.classList.add(sortAsc ? 'sorted-asc' : 'sorted-desc');
+            
+            const sorted = [...currentData].sort((a, b) => {
+                let valA = a[colIndex] || '';
+                let valB = b[colIndex] || '';
+                const numA = parseFloat(valA);
+                const numB = parseFloat(valB);
+                if (!isNaN(numA) && !isNaN(numB) && !/^\s*$/.test(valA) && !/^\s*$/.test(valB)) {
+                    return sortAsc ? numA - numB : numB - numA;
+                }
+                return sortAsc ? String(valA).localeCompare(String(valB)) : String(valB).localeCompare(String(valA));
+            });
+
+            renderTableBodyOnly(sorted);
+            if (searchInput.value) filterTable(searchInput.value.toLowerCase());
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+        }
+    </script>
+</body>
+</html>
