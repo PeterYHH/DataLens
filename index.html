@@ -6,6 +6,8 @@
     <title>DataLens - 智慧型資料表格閱讀器</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <!-- 加入 SheetJS 用於匯出 Excel -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap');
         
@@ -160,6 +162,11 @@
                         重選
                     </button>
 
+                    <!-- Export Excel Button -->
+                    <button id="exportBtn" class="text-green-600 hover:text-green-800 text-sm font-medium whitespace-nowrap ml-2 flex items-center" title="匯出為 Excel">
+                        <i class="fas fa-file-excel mr-1"></i>匯出
+                    </button>
+
                     <!-- Clear Button -->
                     <button id="clearBtn" class="text-red-500 hover:text-red-700 text-sm font-medium whitespace-nowrap ml-2 flex items-center">
                         <i class="fas fa-trash-alt mr-1"></i>清空
@@ -226,6 +233,7 @@
         const tableSelector = document.getElementById('tableSelector');
         const tableSelectorContainer = document.getElementById('tableSelectorContainer');
         const clearBtn = document.getElementById('clearBtn');
+        const exportBtn = document.getElementById('exportBtn');
 
         let currentData = [];
         let headers = [];
@@ -239,7 +247,6 @@
 
         // Load data on startup
         window.addEventListener('DOMContentLoaded', () => {
-            // Updated to sessionStorage
             const stored = sessionStorage.getItem(STORAGE_KEY);
             if (stored) {
                 pasteInput.value = stored;
@@ -286,10 +293,47 @@
         // Clear Storage
         clearBtn.addEventListener('click', () => {
             if (confirm('確定要清空目前的所有資料與暫存嗎？')) {
-                // Updated to sessionStorage
                 sessionStorage.removeItem(STORAGE_KEY);
                 resetUI();
                 showToast('已清空所有資料');
+            }
+        });
+
+        // Export Excel
+        exportBtn.addEventListener('click', () => {
+            if (!currentData || currentData.length === 0) {
+                alert('沒有資料可以匯出');
+                return;
+            }
+            
+            try {
+                // Prepare data: Headers + Rows
+                const workSheetData = [headers, ...currentData];
+                
+                // Create Sheet
+                const ws = XLSX.utils.aoa_to_sheet(workSheetData);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "Data");
+                
+                // Determine Filename
+                let filename = 'export_data.xlsx';
+                if (!tableSelectorContainer.classList.contains('hidden')) {
+                    // If JSON selector is visible, use the selected value (sanitized)
+                    const tableName = tableSelector.value.replace(/[^\w\u4e00-\u9fa5-_]/g, '_');
+                    filename = `${tableName}.xlsx`;
+                } else {
+                    // Use timestamp for generic CSV
+                    const now = new Date();
+                    const timestamp = now.toISOString().slice(0,10).replace(/-/g,'') + '_' + now.getHours().toString().padStart(2,'0') + now.getMinutes().toString().padStart(2,'0');
+                    filename = `export_${timestamp}.xlsx`;
+                }
+                
+                // Export
+                XLSX.writeFile(wb, filename);
+                showToast('已匯出 Excel');
+            } catch (err) {
+                console.error(err);
+                alert('匯出失敗，請檢查資料格式');
             }
         });
 
@@ -355,7 +399,6 @@
             // Save to Storage
             if (shouldSave) {
                 try {
-                    // Updated to sessionStorage
                     sessionStorage.setItem(STORAGE_KEY, trimmed);
                 } catch (e) {
                     console.warn(e);
