@@ -164,7 +164,17 @@
 
                     <!-- Export Excel Button -->
                     <button id="exportBtn" class="text-green-600 hover:text-green-800 text-sm font-medium whitespace-nowrap ml-2 flex items-center" title="匯出為 Excel">
-                        <i class="fas fa-file-excel mr-1"></i>匯出
+                        <i class="fas fa-file-excel mr-1"></i>Excel
+                    </button>
+
+                    <!-- Export CSV Button -->
+                    <button id="exportCsvBtn" class="text-blue-600 hover:text-blue-800 text-sm font-medium whitespace-nowrap ml-2 flex items-center" title="匯出為 CSV">
+                        <i class="fas fa-file-csv mr-1"></i>CSV
+                    </button>
+
+                    <!-- Export JSON Button -->
+                    <button id="exportJsonBtn" class="text-purple-600 hover:text-purple-800 text-sm font-medium whitespace-nowrap ml-2 flex items-center" title="匯出為 JSON">
+                        <i class="fas fa-file-code mr-1"></i>JSON
                     </button>
 
                     <!-- Clear Button -->
@@ -234,6 +244,8 @@
         const tableSelectorContainer = document.getElementById('tableSelectorContainer');
         const clearBtn = document.getElementById('clearBtn');
         const exportBtn = document.getElementById('exportBtn');
+        const exportCsvBtn = document.getElementById('exportCsvBtn');
+        const exportJsonBtn = document.getElementById('exportJsonBtn');
 
         let currentData = [];
         let headers = [];
@@ -334,6 +346,121 @@
             } catch (err) {
                 console.error(err);
                 alert('匯出失敗，請檢查資料格式');
+            }
+        });
+
+        // Export CSV
+        exportCsvBtn.addEventListener('click', () => {
+            if (!currentData || currentData.length === 0) {
+                alert('沒有資料可以匯出');
+                return;
+            }
+
+            try {
+                // 1. Build CSV Content
+                let csvContent = "";
+                
+                // Headers
+                const escapedHeaders = headers.map(h => {
+                    const str = String(h);
+                    if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+                        return `"${str.replace(/"/g, '""')}"`;
+                    }
+                    return str;
+                });
+                csvContent += escapedHeaders.join(',') + "\n";
+
+                // Rows
+                currentData.forEach(row => {
+                    const escapedRow = headers.map((_, i) => { // Use header index to map array rows correctly
+                        let cell = row[i];
+                        if (cell === null || cell === undefined) cell = "";
+                        const str = String(cell);
+                        if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+                            return `"${str.replace(/"/g, '""')}"`;
+                        }
+                        return str;
+                    });
+                    csvContent += escapedRow.join(',') + "\n";
+                });
+
+                // 2. Add BOM for Excel compatibility with UTF-8
+                const bom = "\uFEFF";
+                const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+
+                // 3. Filename
+                let filename = 'export_data.csv';
+                if (!tableSelectorContainer.classList.contains('hidden')) {
+                    const tableName = tableSelector.value.replace(/[^\w\u4e00-\u9fa5-_]/g, '_');
+                    filename = `${tableName}.csv`;
+                } else {
+                    const now = new Date();
+                    const timestamp = now.toISOString().slice(0,10).replace(/-/g,'') + '_' + now.getHours().toString().padStart(2,'0') + now.getMinutes().toString().padStart(2,'0');
+                    filename = `export_${timestamp}.csv`;
+                }
+
+                // 4. Trigger Download
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                showToast('已匯出 CSV');
+
+            } catch (err) {
+                console.error(err);
+                alert('匯出 CSV 失敗');
+            }
+        });
+
+        // Export JSON
+        exportJsonBtn.addEventListener('click', () => {
+            if (!currentData || currentData.length === 0) {
+                alert('沒有資料可以匯出');
+                return;
+            }
+
+            try {
+                // Convert to array of objects
+                const jsonOutput = currentData.map(row => {
+                    const obj = {};
+                    headers.forEach((header, index) => {
+                        obj[header] = row[index];
+                    });
+                    return obj;
+                });
+
+                const jsonString = JSON.stringify(jsonOutput, null, 2);
+                const blob = new Blob([jsonString], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                
+                // Determine Filename
+                let filename = 'export_data.json';
+                if (!tableSelectorContainer.classList.contains('hidden')) {
+                    const tableName = tableSelector.value.replace(/[^\w\u4e00-\u9fa5-_]/g, '_');
+                    filename = `${tableName}.json`;
+                } else {
+                    const now = new Date();
+                    const timestamp = now.toISOString().slice(0,10).replace(/-/g,'') + '_' + now.getHours().toString().padStart(2,'0') + now.getMinutes().toString().padStart(2,'0');
+                    filename = `export_${timestamp}.json`;
+                }
+
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                showToast('已匯出 JSON');
+            } catch (err) {
+                console.error(err);
+                alert('匯出失敗');
             }
         });
 
