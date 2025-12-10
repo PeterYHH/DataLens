@@ -68,6 +68,8 @@
         .toast-enter { transform: translate(-50%, 1rem); opacity: 0; }
         .toast-enter-active { transform: translate(-50%, 0); opacity: 1; }
     </style>
+    <!-- 動態欄位隱藏樣式 -->
+    <style id="colVisStyles"></style>
 </head>
 <body class="text-gray-800 h-screen flex flex-col overflow-hidden">
 
@@ -136,16 +138,32 @@
             <!-- Toolbar (Hidden by default) -->
             <div id="toolbar" class="hidden border-t pt-3 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3">
                 
-                <!-- Search -->
-                <div class="relative w-full lg:w-64">
-                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <i class="fas fa-search text-gray-400"></i>
+                <!-- Search & Column Control Group -->
+                <div class="flex items-center gap-2 w-full lg:w-auto flex-grow lg:flex-grow-0">
+                    <!-- Search -->
+                    <div class="relative w-full lg:w-64">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <i class="fas fa-search text-gray-400"></i>
+                        </div>
+                        <input type="text" id="searchInput" class="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="搜尋內容...">
                     </div>
-                    <input type="text" id="searchInput" class="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="搜尋內容...">
+
+                    <!-- Column Visibility Button & Dropdown -->
+                    <div class="relative">
+                        <button id="colVisBtn" class="bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-3 py-2 rounded-md text-sm font-medium shadow-sm flex items-center h-[38px]" title="欄位設定">
+                            <i class="fas fa-columns mr-1"></i> <span class="hidden sm:inline">欄位</span>
+                        </button>
+                        <div id="colVisMenu" class="hidden absolute left-0 sm:left-auto sm:right-0 mt-2 w-56 bg-white border border-gray-200 rounded-md shadow-lg z-50 max-h-80 overflow-y-auto custom-scrollbar p-2">
+                            <div class="text-xs font-semibold text-gray-500 mb-2 px-1">顯示/隱藏欄位</div>
+                            <div id="colVisOptions" class="space-y-1">
+                                <!-- Checkboxes injected here -->
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 
                 <!-- Info & Selectors -->
-                <div class="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+                <div class="flex flex-wrap items-center gap-2 w-full lg:w-auto justify-end">
                     <!-- JSON Table Selector (Hidden by default) -->
                     <div id="tableSelectorContainer" class="hidden flex items-center bg-yellow-50 border border-yellow-200 rounded-md px-2 py-1">
                         <span class="text-xs font-semibold text-yellow-700 mr-2 whitespace-nowrap"><i class="fas fa-database mr-1"></i>資料來源:</span>
@@ -154,38 +172,38 @@
                         </select>
                     </div>
 
-                    <span id="recordCount" class="text-sm text-gray-600 whitespace-nowrap">共 0 筆</span>
+                    <span id="recordCount" class="text-sm text-gray-600 whitespace-nowrap mx-1">0 筆</span>
                     
-                    <span id="formatTag" class="px-2 py-0.5 rounded text-xs font-semibold bg-gray-200 text-gray-600 whitespace-nowrap">未知</span>
+                    <span id="formatTag" class="px-2 py-0.5 rounded text-xs font-semibold bg-gray-200 text-gray-600 whitespace-nowrap hidden sm:inline-block">未知</span>
                     
-                    <button onclick="document.getElementById('fileInput').click()" class="text-indigo-600 hover:text-indigo-800 text-sm font-medium whitespace-nowrap ml-auto lg:ml-0">
-                        重選
-                    </button>
+                    <div class="border-l border-gray-300 h-6 mx-1 hidden sm:block"></div>
 
-                    <!-- Export Excel Button -->
-                    <button id="exportBtn" class="text-green-600 hover:text-green-800 text-sm font-medium whitespace-nowrap ml-2 flex items-center" title="匯出為 Excel">
-                        <i class="fas fa-file-excel mr-1"></i>Excel
-                    </button>
+                    <!-- Action Buttons -->
+                    <div class="flex items-center gap-1">
+                        <button onclick="document.getElementById('fileInput').click()" class="text-indigo-600 hover:bg-indigo-50 px-2 py-1 rounded text-sm font-medium whitespace-nowrap" title="重選檔案">
+                            <i class="fas fa-folder-open sm:hidden"></i><span class="hidden sm:inline">重選</span>
+                        </button>
 
-                    <!-- Export CSV Button -->
-                    <button id="exportCsvBtn" class="text-blue-600 hover:text-blue-800 text-sm font-medium whitespace-nowrap ml-2 flex items-center" title="匯出為 CSV">
-                        <i class="fas fa-file-csv mr-1"></i>CSV
-                    </button>
+                        <button id="exportBtn" class="text-green-600 hover:bg-green-50 px-2 py-1 rounded text-sm font-medium whitespace-nowrap" title="匯出為 Excel">
+                            <i class="fas fa-file-excel"></i>
+                        </button>
 
-                    <!-- Export JSON Button -->
-                    <button id="exportJsonBtn" class="text-purple-600 hover:text-purple-800 text-sm font-medium whitespace-nowrap ml-2 flex items-center" title="匯出為 JSON">
-                        <i class="fas fa-file-code mr-1"></i>JSON
-                    </button>
+                        <button id="exportCsvBtn" class="text-blue-600 hover:bg-blue-50 px-2 py-1 rounded text-sm font-medium whitespace-nowrap" title="匯出為 CSV">
+                            <i class="fas fa-file-csv"></i>
+                        </button>
 
-                    <!-- Export Markdown Button -->
-                    <button id="exportMdBtn" class="text-gray-600 hover:text-gray-800 text-sm font-medium whitespace-nowrap ml-2 flex items-center" title="複製為 Markdown">
-                        <i class="fab fa-markdown mr-1"></i>MD
-                    </button>
+                        <button id="exportJsonBtn" class="text-purple-600 hover:bg-purple-50 px-2 py-1 rounded text-sm font-medium whitespace-nowrap" title="匯出為 JSON">
+                            <i class="fas fa-file-code"></i>
+                        </button>
 
-                    <!-- Clear Button -->
-                    <button id="clearBtn" class="text-red-500 hover:text-red-700 text-sm font-medium whitespace-nowrap ml-2 flex items-center">
-                        <i class="fas fa-trash-alt mr-1"></i>清空
-                    </button>
+                        <button id="exportMdBtn" class="text-gray-600 hover:bg-gray-100 px-2 py-1 rounded text-sm font-medium whitespace-nowrap" title="複製為 Markdown">
+                            <i class="fab fa-markdown"></i>
+                        </button>
+
+                        <button id="clearBtn" class="text-red-500 hover:bg-red-50 px-2 py-1 rounded text-sm font-medium whitespace-nowrap ml-1" title="清空資料">
+                            <i class="fas fa-trash-alt"></i>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -252,25 +270,40 @@
         const exportCsvBtn = document.getElementById('exportCsvBtn');
         const exportJsonBtn = document.getElementById('exportJsonBtn');
         const exportMdBtn = document.getElementById('exportMdBtn');
+        const colVisBtn = document.getElementById('colVisBtn');
+        const colVisMenu = document.getElementById('colVisMenu');
+        const colVisOptions = document.getElementById('colVisOptions');
+        const colVisStyles = document.getElementById('colVisStyles');
 
         let currentData = [];
         let headers = [];
         let sortCol = -1;
         let sortAsc = true;
         let toastTimeout;
-        let detectedArrays = {}; // Store all found arrays in JSON
+        let detectedArrays = {}; 
         const STORAGE_KEY = 'datalens_raw_data';
+        let hiddenColumns = new Set(); // Track hidden column indices
 
         // --- Event Listeners ---
 
-        // Load data on startup
         window.addEventListener('DOMContentLoaded', () => {
             const stored = sessionStorage.getItem(STORAGE_KEY);
             if (stored) {
                 pasteInput.value = stored;
-                detectAndProcess(stored, false); // false = don't save again
+                detectAndProcess(stored, false);
                 showToast('已還原上次的資料 (Session)');
             }
+        });
+
+        // Close ColVis menu when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!colVisBtn.contains(e.target) && !colVisMenu.contains(e.target)) {
+                colVisMenu.classList.add('hidden');
+            }
+        });
+
+        colVisBtn.addEventListener('click', () => {
+            colVisMenu.classList.toggle('hidden');
         });
 
         dropZone.addEventListener('click', () => fileInput.click());
@@ -292,7 +325,6 @@
 
         searchInput.addEventListener('input', (e) => filterTable(e.target.value.toLowerCase()));
         
-        // Table Switching
         tableSelector.addEventListener('change', (e) => {
             const key = e.target.value;
             if (detectedArrays[key]) {
@@ -300,7 +332,6 @@
             }
         });
 
-        // Click to Copy
         tableBody.addEventListener('click', (e) => {
             const td = e.target.closest('td');
             if (!td) return;
@@ -308,7 +339,6 @@
             if (text) copyToClipboard(text);
         });
 
-        // Clear Storage
         clearBtn.addEventListener('click', () => {
             if (confirm('確定要清空目前的所有資料與暫存嗎？')) {
                 sessionStorage.removeItem(STORAGE_KEY);
@@ -317,192 +347,104 @@
             }
         });
 
-        // Export Excel
-        exportBtn.addEventListener('click', () => {
+        // --- Exports ---
+        
+        exportBtn.addEventListener('click', () => exportData('excel'));
+        exportCsvBtn.addEventListener('click', () => exportData('csv'));
+        exportJsonBtn.addEventListener('click', () => exportData('json'));
+        exportMdBtn.addEventListener('click', () => exportData('md'));
+
+        function exportData(type) {
             if (!currentData || currentData.length === 0) {
                 alert('沒有資料可以匯出');
                 return;
             }
+
+            // Filter data based on visibility
+            // We map indices 0..n, keep only those NOT in hiddenColumns
+            const visibleIndices = headers.map((_, i) => i).filter(i => !hiddenColumns.has(i));
             
-            try {
-                // Prepare data: Headers + Rows
-                const workSheetData = [headers, ...currentData];
-                
-                // Create Sheet
-                const ws = XLSX.utils.aoa_to_sheet(workSheetData);
-                const wb = XLSX.utils.book_new();
-                XLSX.utils.book_append_sheet(wb, ws, "Data");
-                
-                // Determine Filename
-                let filename = 'export_data.xlsx';
-                if (!tableSelectorContainer.classList.contains('hidden')) {
-                    // If JSON selector is visible, use the selected value (sanitized)
-                    const tableName = tableSelector.value.replace(/[^\w\u4e00-\u9fa5-_]/g, '_');
-                    filename = `${tableName}.xlsx`;
-                } else {
-                    // Use timestamp for generic CSV
-                    const now = new Date();
-                    const timestamp = now.toISOString().slice(0,10).replace(/-/g,'') + '_' + now.getHours().toString().padStart(2,'0') + now.getMinutes().toString().padStart(2,'0');
-                    filename = `export_${timestamp}.xlsx`;
-                }
-                
-                // Export
-                XLSX.writeFile(wb, filename);
-                showToast('已匯出 Excel');
-            } catch (err) {
-                console.error(err);
-                alert('匯出失敗，請檢查資料格式');
-            }
-        });
-
-        // Export CSV
-        exportCsvBtn.addEventListener('click', () => {
-            if (!currentData || currentData.length === 0) {
-                alert('沒有資料可以匯出');
+            if (visibleIndices.length === 0) {
+                alert('沒有可見的欄位可以匯出');
                 return;
             }
 
-            try {
-                // 1. Build CSV Content
-                let csvContent = "";
-                
-                // Headers
-                const escapedHeaders = headers.map(h => {
-                    const str = String(h);
-                    if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-                        return `"${str.replace(/"/g, '""')}"`;
-                    }
-                    return str;
-                });
-                csvContent += escapedHeaders.join(',') + "\n";
-
-                // Rows
-                currentData.forEach(row => {
-                    const escapedRow = headers.map((_, i) => { // Use header index to map array rows correctly
-                        let cell = row[i];
-                        if (cell === null || cell === undefined) cell = "";
-                        const str = String(cell);
-                        if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-                            return `"${str.replace(/"/g, '""')}"`;
-                        }
-                        return str;
-                    });
-                    csvContent += escapedRow.join(',') + "\n";
-                });
-
-                // 2. Add BOM for Excel compatibility with UTF-8
-                const bom = "\uFEFF";
-                const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
-                const url = URL.createObjectURL(blob);
-
-                // 3. Filename
-                let filename = 'export_data.csv';
-                if (!tableSelectorContainer.classList.contains('hidden')) {
-                    const tableName = tableSelector.value.replace(/[^\w\u4e00-\u9fa5-_]/g, '_');
-                    filename = `${tableName}.csv`;
-                } else {
-                    const now = new Date();
-                    const timestamp = now.toISOString().slice(0,10).replace(/-/g,'') + '_' + now.getHours().toString().padStart(2,'0') + now.getMinutes().toString().padStart(2,'0');
-                    filename = `export_${timestamp}.csv`;
-                }
-
-                // 4. Trigger Download
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-
-                showToast('已匯出 CSV');
-
-            } catch (err) {
-                console.error(err);
-                alert('匯出 CSV 失敗');
-            }
-        });
-
-        // Export JSON
-        exportJsonBtn.addEventListener('click', () => {
-            if (!currentData || currentData.length === 0) {
-                alert('沒有資料可以匯出');
-                return;
+            // Create new headers and data arrays based on visible indices
+            const exportHeaders = visibleIndices.map(i => headers[i]);
+            const exportRows = currentData.map(row => visibleIndices.map(i => row[i]));
+            
+            const now = new Date();
+            // Generate timestamp with seconds: YYYYMMDD_HHMMSS
+            const timestamp = now.toISOString().slice(0,10).replace(/-/g,'') + '_' + 
+                              now.getHours().toString().padStart(2,'0') + 
+                              now.getMinutes().toString().padStart(2,'0') + 
+                              now.getSeconds().toString().padStart(2,'0');
+            let baseName = 'export_' + timestamp;
+            
+            if (!tableSelectorContainer.classList.contains('hidden')) {
+                // If table selector is active, use the table name but still append timestamp for uniqueness
+                // or just sanitize the table name. Let's keep it simple and use the sanitized table name + short timestamp if needed,
+                // but user request specifically asked for seconds to avoid duplication.
+                // Let's stick to the base name format or sanitized table name.
+                // To safely avoid duplication even with same table name, appending timestamp is safer,
+                // but usually user expects "tablename.csv".
+                // Let's modify: if specific table, use `tablename_timestamp`
+                const tableName = tableSelector.value.replace(/[^\w\u4e00-\u9fa5-_]/g, '_');
+                baseName = `${tableName}_${timestamp}`;
             }
 
             try {
-                // Convert to array of objects
-                const jsonOutput = currentData.map(row => {
-                    const obj = {};
-                    headers.forEach((header, index) => {
-                        obj[header] = row[index];
+                if (type === 'excel') {
+                    const ws = XLSX.utils.aoa_to_sheet([exportHeaders, ...exportRows]);
+                    const wb = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(wb, ws, "Data");
+                    XLSX.writeFile(wb, `${baseName}.xlsx`);
+                    showToast('已匯出 Excel');
+                } else if (type === 'csv') {
+                    let csv = "\uFEFF"; // BOM
+                    const escape = (val) => {
+                        const s = String(val ?? '');
+                        return (s.includes(',') || s.includes('"') || s.includes('\n')) ? `"${s.replace(/"/g, '""')}"` : s;
+                    };
+                    csv += exportHeaders.map(escape).join(',') + "\n";
+                    exportRows.forEach(row => {
+                        csv += row.map(escape).join(',') + "\n"; // row is already ordered by visibleIndices
                     });
-                    return obj;
-                });
-
-                const jsonString = JSON.stringify(jsonOutput, null, 2);
-                const blob = new Blob([jsonString], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                
-                // Determine Filename
-                let filename = 'export_data.json';
-                if (!tableSelectorContainer.classList.contains('hidden')) {
-                    const tableName = tableSelector.value.replace(/[^\w\u4e00-\u9fa5-_]/g, '_');
-                    filename = `${tableName}.json`;
-                } else {
-                    const now = new Date();
-                    const timestamp = now.toISOString().slice(0,10).replace(/-/g,'') + '_' + now.getHours().toString().padStart(2,'0') + now.getMinutes().toString().padStart(2,'0');
-                    filename = `export_${timestamp}.json`;
+                    downloadBlob(csv, `${baseName}.csv`, 'text/csv;charset=utf-8;');
+                    showToast('已匯出 CSV');
+                } else if (type === 'json') {
+                    const jsonOutput = exportRows.map(row => {
+                        const obj = {};
+                        exportHeaders.forEach((h, i) => obj[h] = row[i]);
+                        return obj;
+                    });
+                    downloadBlob(JSON.stringify(jsonOutput, null, 2), `${baseName}.json`, 'application/json');
+                    showToast('已匯出 JSON');
+                } else if (type === 'md') {
+                    const makeRow = (arr) => '| ' + arr.map(c => String(c||'').replace(/\|/g, '\\|').replace(/\n/g, '<br>')).join(' | ') + ' |';
+                    let md = makeRow(exportHeaders) + '\n';
+                    md += '| ' + exportHeaders.map(() => '---').join(' | ') + ' |\n';
+                    exportRows.forEach(row => md += makeRow(row) + '\n');
+                    copyToClipboard(md);
+                    showToast('已複製 Markdown');
                 }
-
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-                
-                showToast('已匯出 JSON');
             } catch (err) {
                 console.error(err);
                 alert('匯出失敗');
             }
-        });
+        }
 
-        // Copy Markdown
-        exportMdBtn.addEventListener('click', () => {
-            if (!currentData || currentData.length === 0) {
-                alert('沒有資料可以匯出');
-                return;
-            }
-
-            try {
-                // Helper to format a Markdown row
-                const makeRow = (arr) => '| ' + arr.map(cell => {
-                    return String(cell || '').replace(/\|/g, '\\|').replace(/\n/g, '<br>');
-                }).join(' | ') + ' |';
-                
-                // 1. Header
-                let md = makeRow(headers) + '\n';
-                
-                // 2. Separator
-                md += '| ' + headers.map(() => '---').join(' | ') + ' |\n';
-                
-                // 3. Rows
-                currentData.forEach(row => {
-                    // Ensure row alignment with headers by mapping index
-                    const normalizedRow = headers.map((_, i) => row[i]); 
-                    md += makeRow(normalizedRow) + '\n';
-                });
-
-                copyToClipboard(md);
-                showToast('已複製 Markdown');
-            } catch (err) {
-                console.error(err);
-                alert('產生 Markdown 失敗');
-            }
-        });
+        function downloadBlob(content, filename, mimeType) {
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
 
         function resetUI() {
             currentData = [];
@@ -513,10 +455,14 @@
             searchInput.value = '';
             tableSelector.innerHTML = '';
             tableSelectorContainer.classList.add('hidden');
+            colVisMenu.classList.add('hidden');
+            colVisOptions.innerHTML = '';
+            hiddenColumns.clear();
+            updateColVisStyles();
             
             dataTable.classList.add('hidden');
             toolbar.classList.add('hidden');
-            emptyState.style.display = 'flex'; // Restore flex display
+            emptyState.style.display = 'flex';
         }
 
         function copyToClipboard(text) {
@@ -528,11 +474,10 @@
             textarea.select();
             try {
                 document.execCommand('copy');
-                const displayMsg = text.length > 20 ? text.substring(0, 20) + '...' : text;
-                showToast(`已複製：${displayMsg}`);
-            } catch (err) {
-                showToast('複製失敗');
-            }
+                const len = text.length;
+                const displayMsg = len > 20 ? text.substring(0, 20) + '...' : text;
+                showToast(`已複製 (${len} 字)`);
+            } catch (err) { showToast('複製失敗'); }
             document.body.removeChild(textarea);
         }
 
@@ -562,18 +507,11 @@
 
         function detectAndProcess(text, shouldSave = false) {
             const trimmed = text.trim();
-            
-            // Save to Storage
             if (shouldSave) {
-                try {
-                    sessionStorage.setItem(STORAGE_KEY, trimmed);
-                } catch (e) {
-                    console.warn(e);
-                    showToast('檔案過大，無法暫存');
-                }
+                try { sessionStorage.setItem(STORAGE_KEY, trimmed); } 
+                catch (e) { showToast('檔案過大，無法暫存'); }
             }
             
-            // Try JSON
             if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
                 try {
                     const json = JSON.parse(trimmed);
@@ -583,46 +521,32 @@
                 } catch (e) { console.log('JSON Parse failed, trying CSV'); }
             }
 
-            // Fallback CSV
             processCSV(text);
             updateFormatTag('CSV');
-            tableSelectorContainer.classList.add('hidden'); // Hide selector for CSV
+            tableSelectorContainer.classList.add('hidden');
         }
 
         function updateFormatTag(type) {
             formatTag.textContent = type;
             formatTag.className = type === 'JSON' 
-                ? 'px-2 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-700 whitespace-nowrap'
-                : 'px-2 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-700 whitespace-nowrap';
+                ? 'px-2 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-700 whitespace-nowrap hidden sm:inline-block'
+                : 'px-2 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-700 whitespace-nowrap hidden sm:inline-block';
         }
 
-        // --- Advanced JSON Analysis ---
         function analyzeAndProcessJSON(json) {
             detectedArrays = {};
             tableSelector.innerHTML = '';
             
-            // 1. Root Array
             if (Array.isArray(json)) {
                 detectedArrays['Root Data'] = json;
-            } 
-            // 2. Object with keys
-            else if (typeof json === 'object' && json !== null) {
+            } else if (typeof json === 'object' && json !== null) {
                 const rootObject = {};
-
                 Object.keys(json).forEach(key => {
                     const value = json[key];
-                    
-                    // 1. Always collect to Root Object (Requirement: Show ALL fields in first layer)
                     rootObject[key] = value;
-                    
-                    // 2. Detect separate tables (Array discovery)
-                    // Case A: It's an array -> Add as separate table
                     if (Array.isArray(value) && value.length > 0) {
                         detectedArrays[key] = value;
-                    } 
-                    // Case B: Nested object containing arrays (e.g., barChart.data)
-                    else if (typeof value === 'object' && value !== null) {
-                         // Check one level deep for arrays
+                    } else if (typeof value === 'object' && value !== null) {
                          Object.keys(value).forEach(subKey => {
                             if (Array.isArray(value[subKey]) && value[subKey].length > 0) {
                                 detectedArrays[`${key}.${subKey}`] = value[subKey];
@@ -630,25 +554,14 @@
                          });
                     }
                 });
-
-                // Add Root table
-                if (Object.keys(rootObject).length > 0) {
-                    detectedArrays['摘要資訊 (Root)'] = [rootObject];
-                }
-
-                // If no arrays found anywhere, fallback to treating the object as a single row
-                if (Object.keys(detectedArrays).length === 0) {
-                    detectedArrays['Root Object'] = [json];
-                }
+                if (Object.keys(rootObject).length > 0) detectedArrays['摘要資訊 (Root)'] = [rootObject];
+                if (Object.keys(detectedArrays).length === 0) detectedArrays['Root Object'] = [json];
             } else {
-                alert('無效的 JSON 結構');
+                alert('無效的 JSON');
                 return;
             }
 
-            // 3. Populate Selector and Pick Best Candidate
             let keys = Object.keys(detectedArrays);
-            
-            // Sort to ensure '摘要資訊 (Root)' is first if it exists
             if (keys.includes('摘要資訊 (Root)')) {
                 keys = ['摘要資訊 (Root)', ...keys.filter(k => k !== '摘要資訊 (Root)')];
             }
@@ -658,61 +571,41 @@
 
             keys.forEach(key => {
                 const arr = detectedArrays[key];
-                // Heuristic logic fallback
                 let colCount = 1;
-                if (arr.length > 0 && typeof arr[0] === 'object' && arr[0] !== null) {
-                    colCount = Object.keys(arr[0]).length;
-                }
+                if (arr.length > 0 && typeof arr[0] === 'object' && arr[0] !== null) colCount = Object.keys(arr[0]).length;
                 const score = arr.length * colCount;
-                
-                // Track heuristic winner
-                if (score > maxScore) {
-                    maxScore = score;
-                    bestKey = key;
-                }
-
-                // Add to dropdown
+                if (score > maxScore) { maxScore = score; bestKey = key; }
                 const option = document.createElement('option');
                 option.value = key;
                 option.text = `${key} (${arr.length} 筆)`;
                 tableSelector.appendChild(option);
             });
 
-            // 4. PREFERENCE: Override bestKey if Root Summary exists
-            if (detectedArrays['摘要資訊 (Root)']) {
-                bestKey = '摘要資訊 (Root)';
-            }
+            if (detectedArrays['摘要資訊 (Root)']) bestKey = '摘要資訊 (Root)';
 
-            // Show selector only if multiple arrays found
             if (keys.length > 1) {
                 tableSelectorContainer.classList.remove('hidden');
-                tableSelector.value = bestKey; // Select the best one
+                tableSelector.value = bestKey;
             } else {
                 tableSelectorContainer.classList.add('hidden');
             }
 
-            // Process the winner
             processJsonArray(detectedArrays[bestKey], bestKey);
         }
 
         function processJsonArray(dataArray, arrayName) {
             currentData = [];
             headers = [];
+            hiddenColumns.clear(); // Reset visibility when switching tables
+            updateColVisStyles();
 
             try {
-                // Determine Headers
                 const headerSet = new Set();
                 dataArray.forEach(item => {
-                    if (typeof item === 'object' && item !== null) {
-                        Object.keys(item).forEach(key => headerSet.add(key));
-                    } else {
-                        headerSet.add("Value");
-                    }
+                    if (typeof item === 'object' && item !== null) Object.keys(item).forEach(key => headerSet.add(key));
+                    else headerSet.add("Value");
                 });
-                
                 headers = Array.from(headerSet);
-                
-                // Map Data
                 currentData = dataArray.map(item => {
                     if (typeof item !== 'object' || item === null) return [item];
                     return headers.map(key => {
@@ -722,20 +615,16 @@
                         return val;
                     });
                 });
-
                 renderTable(headers, currentData);
                 updateUIState(currentData.length);
-
-            } catch (err) {
-                console.error(err);
-                alert(`處理 ${arrayName} 時發生錯誤`);
-            }
+            } catch (err) { console.error(err); alert(`處理錯誤`); }
         }
 
-        // --- CSV Logic ---
         function processCSV(text) {
             currentData = [];
             headers = [];
+            hiddenColumns.clear();
+            updateColVisStyles();
             
             try {
                 const arr = [];
@@ -758,7 +647,6 @@
                     arr[row][col] += cur;
                 }
                 if (arr.length > 0 && arr[arr.length-1].length === 1 && arr[arr.length-1][0] === '') arr.pop();
-                
                 if (arr.length === 0) { alert('無效內容'); return; }
 
                 if (headerCheck.checked) {
@@ -768,13 +656,9 @@
                     headers = Array.from({length: arr[0].length}, (_, i) => `Col ${i+1}`);
                     currentData = arr;
                 }
-                
                 renderTable(headers, currentData);
                 updateUIState(currentData.length);
-
-            } catch (err) {
-                alert('CSV 解析錯誤');
-            }
+            } catch (err) { alert('CSV 解析錯誤'); }
         }
 
         function updateUIState(count) {
@@ -782,31 +666,75 @@
             dataTable.classList.remove('hidden');
             toolbar.classList.remove('hidden');
             recordCount.innerText = `共 ${count} 筆`;
-            
-            // Force scroll container to check dimensions
             tableContainer.scrollLeft = 0;
         }
 
-        // --- Rendering ---
-        function renderTable(headers, rows) {
-            tableHeader.innerHTML = '';
+        // --- Column Visibility Logic ---
 
-            // 1. Sticky Number Column
+        function updateColVisMenu() {
+            colVisOptions.innerHTML = '';
+            headers.forEach((header, index) => {
+                const div = document.createElement('div');
+                div.className = 'flex items-center hover:bg-gray-100 p-1 rounded cursor-pointer';
+                const isHidden = hiddenColumns.has(index);
+                
+                div.innerHTML = `
+                    <input type="checkbox" id="col-check-${index}" ${!isHidden ? 'checked' : ''} class="h-4 w-4 text-indigo-600 rounded cursor-pointer">
+                    <label for="col-check-${index}" class="ml-2 text-sm text-gray-700 cursor-pointer select-none truncate flex-1" title="${escapeHtml(header)}">${escapeHtml(header)}</label>
+                `;
+                
+                div.addEventListener('click', (e) => {
+                    // Toggle if clicked on container, or let checkbox handle it
+                    const checkbox = div.querySelector('input');
+                    if (e.target !== checkbox) {
+                        e.preventDefault();
+                        checkbox.checked = !checkbox.checked;
+                    }
+                    toggleColumn(index, !checkbox.checked); // If checked=false, means hide
+                });
+                
+                colVisOptions.appendChild(div);
+            });
+        }
+
+        function toggleColumn(index, hide) {
+            if (hide) hiddenColumns.add(index);
+            else hiddenColumns.delete(index);
+            updateColVisStyles();
+        }
+
+        function updateColVisStyles() {
+            if (hiddenColumns.size === 0) {
+                colVisStyles.innerHTML = '';
+                return;
+            }
+            // Generate CSS to hide specific columns by class name
+            const rules = Array.from(hiddenColumns).map(i => `.col-idx-${i} { display: none !important; }`).join('\n');
+            colVisStyles.innerHTML = rules;
+        }
+
+        // --- Rendering ---
+
+        function renderTable(headers, rows) {
+            // Update Menu
+            updateColVisMenu();
+
+            tableHeader.innerHTML = '';
+            
             const thNo = document.createElement('th');
             thNo.className = 'px-3 py-3 text-center text-xs font-bold text-gray-500 bg-gray-100 sticky left-0 z-40 border-b border-gray-200 sticky-left-shadow min-w-[50px]';
             thNo.innerText = '#';
             tableHeader.appendChild(thNo);
 
-            // 2. Data Headers
             headers.forEach((header, index) => {
                 const th = document.createElement('th');
-                th.className = 'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 transition-colors group whitespace-nowrap border-b border-gray-200';
+                // Added class col-idx-${index} for visibility control
+                th.className = `px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 transition-colors group whitespace-nowrap border-b border-gray-200 col-idx-${index}`;
                 th.onclick = () => sortTable(index);
                 th.innerHTML = `<div class="flex items-center space-x-1"><span>${escapeHtml(header)}</span><i class="fas fa-sort sort-icon text-gray-400 group-hover:text-gray-600 ml-1"></i></div>`;
                 tableHeader.appendChild(th);
             });
 
-            // 3. Render Body
             tableBody.innerHTML = '';
             const fragment = document.createDocumentFragment();
 
@@ -814,21 +742,20 @@
                 const tr = document.createElement('tr');
                 tr.className = 'hover:bg-indigo-50 transition-colors duration-150';
                 
-                // Number Cell
                 const tdNo = document.createElement('td');
                 tdNo.className = 'px-3 py-3 whitespace-nowrap text-xs text-gray-500 font-mono text-center border-b border-gray-100 sticky left-0 z-20 sticky-left-shadow bg-gray-50 cursor-pointer hover:bg-indigo-100 hover:text-indigo-700'; 
                 tdNo.textContent = rowIndex + 1;
                 tdNo.title = "點擊複製行號";
                 tr.appendChild(tdNo);
 
-                // Data Cells
                 for (let i = 0; i < headers.length; i++) {
                     const td = document.createElement('td');
-                    td.className = 'px-4 py-3 whitespace-nowrap text-sm text-gray-700 border-b border-gray-100 cursor-pointer hover:bg-indigo-100 hover:text-indigo-900 transition-colors max-w-xs truncate';
+                    // Added class col-idx-${i} for visibility control
+                    td.className = `px-4 py-3 whitespace-nowrap text-sm text-gray-700 border-b border-gray-100 cursor-pointer hover:bg-indigo-100 hover:text-indigo-900 transition-colors max-w-xs truncate col-idx-${i}`;
                     
                     let cellValue = row[i];
                     td.textContent = (cellValue === undefined || cellValue === null) ? '' : cellValue;
-                    td.title = td.textContent; // Tooltip for truncated content
+                    td.title = td.textContent;
                     tr.appendChild(td);
                 }
                 fragment.appendChild(tr);
@@ -836,21 +763,13 @@
             tableBody.appendChild(fragment);
         }
 
-        // --- Sort & Filter ---
         function filterTable(term) {
             if (!term) {
-                renderTable(headers, currentData); // Re-render all to fix row numbers
+                renderTableBodyOnly(currentData);
                 recordCount.innerText = `共 ${currentData.length} 筆`;
                 return;
             }
             const filtered = currentData.filter(row => row.some(cell => String(cell).toLowerCase().includes(term)));
-            
-            // Custom render for filtered (row numbers will be 1..N of filtered result)
-            // Or we could pass index? Let's just re-render body with new dataset
-            // Note: sort will be lost on filter currently, simplier UX
-            
-            // Re-use renderTable logic but with filtered data
-            // We need to keep headers consistent
             renderTableBodyOnly(filtered);
             recordCount.innerText = `搜尋結果：${filtered.length} 筆`;
         }
@@ -867,7 +786,8 @@
                 tr.appendChild(tdNo);
                 for (let i = 0; i < headers.length; i++) {
                     const td = document.createElement('td');
-                    td.className = 'px-4 py-3 whitespace-nowrap text-sm text-gray-700 border-b border-gray-100 cursor-pointer hover:bg-indigo-100 max-w-xs truncate';
+                    // Added col-idx-${i} here too
+                    td.className = `px-4 py-3 whitespace-nowrap text-sm text-gray-700 border-b border-gray-100 cursor-pointer hover:bg-indigo-100 max-w-xs truncate col-idx-${i}`;
                     let val = row[i];
                     td.textContent = (val === undefined || val === null) ? '' : val;
                     td.title = td.textContent;
@@ -880,7 +800,13 @@
 
         function sortTable(colIndex) {
             const ths = tableHeader.querySelectorAll('th');
-            ths.forEach(th => th.classList.remove('sorted-asc', 'sorted-desc'));
+            // ths[0] is #, so data columns start from index 1. 
+            // The th corresponding to colIndex is ths[colIndex + 1]
+            // We need to clear icons from ALL data columns
+            for(let i=1; i<ths.length; i++) {
+                ths[i].classList.remove('sorted-asc', 'sorted-desc');
+            }
+            
             const currentTh = ths[colIndex + 1]; 
 
             if (sortCol === colIndex) sortAsc = !sortAsc;
