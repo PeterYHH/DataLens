@@ -177,6 +177,11 @@
                         <i class="fas fa-file-code mr-1"></i>JSON
                     </button>
 
+                    <!-- Export Markdown Button -->
+                    <button id="exportMdBtn" class="text-gray-600 hover:text-gray-800 text-sm font-medium whitespace-nowrap ml-2 flex items-center" title="複製為 Markdown">
+                        <i class="fab fa-markdown mr-1"></i>MD
+                    </button>
+
                     <!-- Clear Button -->
                     <button id="clearBtn" class="text-red-500 hover:text-red-700 text-sm font-medium whitespace-nowrap ml-2 flex items-center">
                         <i class="fas fa-trash-alt mr-1"></i>清空
@@ -246,6 +251,7 @@
         const exportBtn = document.getElementById('exportBtn');
         const exportCsvBtn = document.getElementById('exportCsvBtn');
         const exportJsonBtn = document.getElementById('exportJsonBtn');
+        const exportMdBtn = document.getElementById('exportMdBtn');
 
         let currentData = [];
         let headers = [];
@@ -461,6 +467,40 @@
             } catch (err) {
                 console.error(err);
                 alert('匯出失敗');
+            }
+        });
+
+        // Copy Markdown
+        exportMdBtn.addEventListener('click', () => {
+            if (!currentData || currentData.length === 0) {
+                alert('沒有資料可以匯出');
+                return;
+            }
+
+            try {
+                // Helper to format a Markdown row
+                const makeRow = (arr) => '| ' + arr.map(cell => {
+                    return String(cell || '').replace(/\|/g, '\\|').replace(/\n/g, '<br>');
+                }).join(' | ') + ' |';
+                
+                // 1. Header
+                let md = makeRow(headers) + '\n';
+                
+                // 2. Separator
+                md += '| ' + headers.map(() => '---').join(' | ') + ' |\n';
+                
+                // 3. Rows
+                currentData.forEach(row => {
+                    // Ensure row alignment with headers by mapping index
+                    const normalizedRow = headers.map((_, i) => row[i]); 
+                    md += makeRow(normalizedRow) + '\n';
+                });
+
+                copyToClipboard(md);
+                showToast('已複製 Markdown');
+            } catch (err) {
+                console.error(err);
+                alert('產生 Markdown 失敗');
             }
         });
 
