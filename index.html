@@ -75,7 +75,7 @@
 
     <!-- Header -->
     <header class="bg-white shadow-sm z-20 flex-none">
-        <div class="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
+        <div class="mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center w-full">
             <div class="flex items-center space-x-3">
                 <div class="bg-indigo-600 text-white p-2 rounded-lg shadow-md">
                     <i class="fas fa-table fa-lg"></i>
@@ -89,7 +89,7 @@
     </header>
 
     <!-- Main Content -->
-    <main class="flex-grow flex flex-col p-3 sm:p-6 overflow-hidden max-w-7xl mx-auto w-full space-y-3 sm:space-y-4">
+    <main class="flex-grow flex flex-col p-3 sm:p-6 overflow-hidden w-full space-y-3 sm:space-y-4">
         
         <!-- Controls Section -->
         <div class="bg-white rounded-xl shadow-sm p-4 border border-gray-100 flex-none space-y-4">
@@ -121,6 +121,22 @@
                                 <i class="fas fa-chevron-down text-xs"></i>
                             </div>
                         </div>
+
+                        <!-- Delimiter (CSV only) -->
+                        <div class="relative flex-grow sm:flex-grow-0">
+                            <select id="delimiterSelect" class="w-full text-sm border-gray-300 border rounded-md shadow-sm pl-3 pr-8 py-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white appearance-none cursor-pointer">
+                                <option value=",">逗號 (,)</option>
+                                <option value="tab">Tab</option>
+                                <option value=" ">空白</option>
+                                <option value=";">分號 (;)</option>
+                                <option value="|">管線 (|)</option>
+                                <option value="custom">自訂...</option>
+                            </select>
+                            <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
+                                <i class="fas fa-chevron-down text-xs"></i>
+                            </div>
+                        </div>
+                        <input type="text" id="customDelimiter" placeholder="自訂符號" class="hidden w-24 text-sm border-gray-300 border rounded-md shadow-sm px-2 py-2 focus:ring-indigo-500 focus:border-indigo-500 text-center font-mono">
 
                         <!-- Header Check (CSV only) -->
                         <label class="flex items-center space-x-2 text-sm text-gray-700 cursor-pointer select-none bg-white border border-gray-300 rounded-md px-3 py-2 shadow-sm hover:bg-gray-50 whitespace-nowrap" id="headerCheckContainer">
@@ -274,6 +290,8 @@
         const colVisMenu = document.getElementById('colVisMenu');
         const colVisOptions = document.getElementById('colVisOptions');
         const colVisStyles = document.getElementById('colVisStyles');
+        const delimiterSelect = document.getElementById('delimiterSelect');
+        const customDelimiter = document.getElementById('customDelimiter');
 
         let currentData = [];
         let headers = [];
@@ -316,6 +334,10 @@
         });
 
         fileInput.addEventListener('change', (e) => { if (e.target.files.length) handleFile(e.target.files[0]); });
+
+        delimiterSelect.addEventListener('change', () => {
+            customDelimiter.classList.toggle('hidden', delimiterSelect.value !== 'custom');
+        });
 
         convertBtn.addEventListener('click', () => {
             const text = pasteInput.value;
@@ -620,26 +642,36 @@
             } catch (err) { console.error(err); alert(`處理錯誤`); }
         }
 
+        function getDelimiter() {
+            const val = delimiterSelect.value;
+            if (val === 'tab') return '\t';
+            if (val === 'custom') return customDelimiter.value || ',';
+            return val;
+        }
+
         function processCSV(text) {
             currentData = [];
             headers = [];
             hiddenColumns.clear();
             updateColVisStyles();
-            
+
             try {
+                const delimiter = getDelimiter();
                 const arr = [];
                 let quote = false;
                 let col = 0, row = 0;
-                let cc = text.split('');
                 arr[row] = arr[row] || [];
                 arr[row][col] = '';
 
-                for (let i = 0; i < cc.length; i++) {
-                    let cur = cc[i];
-                    let next = cc[i+1];
+                for (let i = 0; i < text.length; i++) {
+                    let cur = text[i];
+                    let next = text[i+1];
                     if (cur === '"' && quote && next === '"') { arr[row][col] += '"'; i++; continue; }
                     if (cur === '"') { quote = !quote; continue; }
-                    if (cur === ',' && !quote) { col++; arr[row][col] = ''; continue; }
+                    if (!quote && text.substr(i, delimiter.length) === delimiter) {
+                        i += delimiter.length - 1;
+                        col++; arr[row][col] = ''; continue;
+                    }
                     if ((cur === '\r' || cur === '\n') && !quote) {
                         if (cur === '\r' && next === '\n') i++;
                         row++; col = 0; arr[row] = arr[row] || []; arr[row][col] = ''; continue;
