@@ -41,9 +41,70 @@
         th:hover .sort-icon {
             opacity: 1;
         }
-        th.sorted-asc .sort-icon, th.sorted-desc .sort-icon {
+        /* 排序中的欄位：底色 + 文字色強化辨識 */
+        th.is-sorted {
+            background-color: #eef2ff !important; /* indigo-50 */
+        }
+        th.is-sorted .sort-label {
+            color: #4338ca; /* indigo-700 */
+            font-weight: 600;
+        }
+        th.is-sorted .sort-icon {
             opacity: 1;
             color: #4f46e5;
+        }
+        /* 多欄排序順位 badge */
+        .sort-order-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 16px;
+            height: 16px;
+            border-radius: 9999px;
+            background-color: #4f46e5;
+            color: white;
+            font-size: 10px;
+            font-weight: 700;
+            margin-left: 4px;
+            line-height: 1;
+        }
+
+        /* 欄寬調整手柄 */
+        .col-resizer {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 6px;
+            height: 100%;
+            cursor: col-resize;
+            user-select: none;
+            z-index: 5;
+        }
+        .col-resizer:hover, .col-resizer.resizing {
+            background-color: #4f46e5;
+            opacity: 0.5;
+        }
+        body.is-resizing {
+            cursor: col-resize !important;
+            user-select: none !important;
+        }
+        body.is-resizing * {
+            cursor: col-resize !important;
+        }
+
+        /* 快速鍵說明 modal */
+        .kbd {
+            display: inline-block;
+            padding: 2px 8px;
+            font-family: ui-monospace, monospace;
+            font-size: 12px;
+            background-color: #f3f4f6;
+            border: 1px solid #d1d5db;
+            border-bottom-width: 2px;
+            border-radius: 4px;
+            color: #374151;
+            min-width: 24px;
+            text-align: center;
         }
         
         .loader {
@@ -70,6 +131,8 @@
     </style>
     <!-- 動態欄位隱藏樣式 -->
     <style id="colVisStyles"></style>
+    <!-- 動態欄寬樣式 -->
+    <style id="colWidthStyles"></style>
 </head>
 <body class="text-gray-800 h-screen flex flex-col overflow-hidden">
 
@@ -216,6 +279,10 @@
                             <i class="fab fa-markdown"></i>
                         </button>
 
+                        <button id="kbdHelpBtn" class="text-gray-500 hover:bg-gray-100 px-2 py-1 rounded text-sm font-medium whitespace-nowrap" title="鍵盤快速鍵 (?)">
+                            <i class="fas fa-keyboard"></i>
+                        </button>
+
                         <button id="clearBtn" class="text-red-500 hover:bg-red-50 px-2 py-1 rounded text-sm font-medium whitespace-nowrap ml-1" title="清空資料">
                             <i class="fas fa-trash-alt"></i>
                         </button>
@@ -259,6 +326,27 @@
         <span id="toastMsg">已複製</span>
     </div>
 
+    <!-- Keyboard Shortcuts Modal -->
+    <div id="kbdHelpModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+        <div class="bg-white rounded-xl shadow-xl max-w-md w-full p-6" id="kbdHelpDialog">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-bold text-gray-900 flex items-center"><i class="fas fa-keyboard text-indigo-600 mr-2"></i>鍵盤快速鍵</h2>
+                <button id="kbdHelpCloseBtn" class="text-gray-400 hover:text-gray-600 text-xl leading-none" title="關閉 (Esc)">&times;</button>
+            </div>
+            <div class="space-y-3 text-sm">
+                <div class="flex justify-between items-center"><span class="text-gray-700">聚焦搜尋框</span><span class="kbd">/</span></div>
+                <div class="flex justify-between items-center"><span class="text-gray-700">清除搜尋並失焦</span><span class="kbd">Esc</span></div>
+                <div class="flex justify-between items-center"><span class="text-gray-700">顯示／隱藏此說明</span><span class="kbd">?</span></div>
+                <div class="border-t pt-3 mt-3"></div>
+                <div class="flex justify-between items-center"><span class="text-gray-700">點擊欄位排序</span><span class="kbd">Click</span></div>
+                <div class="flex justify-between items-center"><span class="text-gray-700">多欄排序（加入次要鍵）</span><span><span class="kbd">Shift</span> + <span class="kbd">Click</span></span></div>
+                <div class="flex justify-between items-center"><span class="text-gray-700">複製儲存格內容</span><span class="kbd">Click</span></div>
+                <div class="flex justify-between items-center"><span class="text-gray-700">調整欄位寬度</span><span class="text-xs text-gray-500">拖曳欄位邊緣</span></div>
+                <div class="flex justify-between items-center"><span class="text-gray-700">重新排列欄位</span><span class="text-xs text-gray-500">拖曳欄位標題</span></div>
+            </div>
+        </div>
+    </div>
+
     <script>
         // DOM Elements
         const dropZone = document.getElementById('dropZone');
@@ -292,11 +380,16 @@
         const colVisStyles = document.getElementById('colVisStyles');
         const delimiterSelect = document.getElementById('delimiterSelect');
         const customDelimiter = document.getElementById('customDelimiter');
+        const kbdHelpBtn = document.getElementById('kbdHelpBtn');
+        const kbdHelpModal = document.getElementById('kbdHelpModal');
+        const kbdHelpDialog = document.getElementById('kbdHelpDialog');
+        const kbdHelpCloseBtn = document.getElementById('kbdHelpCloseBtn');
+        const colWidthStyles = document.getElementById('colWidthStyles');
 
         let currentData = [];
         let headers = [];
-        let sortCol = -1;
-        let sortAsc = true;
+        let sortKeys = []; // 多欄排序：[{col, asc}, ...]，順序即為排序優先級
+        let colWidths = new Map(); // 欄寬持久化：colIndex -> width(px)
         let toastTimeout;
         let detectedArrays = {}; 
         const STORAGE_KEY = 'datalens_raw_data';
@@ -376,6 +469,57 @@
                 sessionStorage.removeItem(STORAGE_KEY);
                 resetUI();
                 showToast('已清空所有資料');
+            }
+        });
+
+        // --- 鍵盤快速鍵 ---
+
+        function toggleKbdHelp(show) {
+            if (show === undefined) show = kbdHelpModal.classList.contains('hidden');
+            kbdHelpModal.classList.toggle('hidden', !show);
+        }
+
+        kbdHelpBtn.addEventListener('click', () => toggleKbdHelp(true));
+        kbdHelpCloseBtn.addEventListener('click', () => toggleKbdHelp(false));
+        kbdHelpModal.addEventListener('click', (e) => {
+            // 點 modal 背景關閉，點對話框本身不關
+            if (!kbdHelpDialog.contains(e.target)) toggleKbdHelp(false);
+        });
+
+        document.addEventListener('keydown', (e) => {
+            const tag = (e.target.tagName || '').toLowerCase();
+            const isTyping = tag === 'input' || tag === 'textarea' || tag === 'select';
+            const modalOpen = !kbdHelpModal.classList.contains('hidden');
+
+            // Esc：優先關閉 modal；其次清除搜尋框；最後關閉欄位選單
+            if (e.key === 'Escape') {
+                if (modalOpen) { toggleKbdHelp(false); e.preventDefault(); return; }
+                if (e.target === searchInput) {
+                    searchInput.value = '';
+                    filterTable('');
+                    searchInput.blur();
+                    e.preventDefault();
+                    return;
+                }
+                if (!colVisMenu.classList.contains('hidden')) {
+                    colVisMenu.classList.add('hidden');
+                    e.preventDefault();
+                    return;
+                }
+            }
+
+            // 以下快速鍵在輸入框聚焦時不攔截
+            if (isTyping) return;
+
+            if (e.key === '/') {
+                if (!toolbar.classList.contains('hidden')) {
+                    e.preventDefault();
+                    searchInput.focus();
+                    searchInput.select();
+                }
+            } else if (e.key === '?') {
+                e.preventDefault();
+                toggleKbdHelp();
             }
         });
 
@@ -481,6 +625,9 @@
         function resetUI() {
             currentData = [];
             headers = [];
+            sortKeys = [];
+            colWidths.clear();
+            updateColWidthStyles();
             detectedArrays = {};
             pasteInput.value = '';
             fileInput.value = '';
@@ -628,6 +775,9 @@
         function processJsonArray(dataArray, arrayName) {
             currentData = [];
             headers = [];
+            sortKeys = [];
+            colWidths.clear();
+            updateColWidthStyles();
             hiddenColumns.clear(); // Reset visibility when switching tables
             updateColVisStyles();
 
@@ -662,6 +812,9 @@
         function processCSV(text) {
             currentData = [];
             headers = [];
+            sortKeys = [];
+            colWidths.clear();
+            updateColWidthStyles();
             hiddenColumns.clear();
             updateColVisStyles();
 
@@ -772,11 +925,15 @@
                 const th = document.createElement('th');
                 // bg-gray-50 必須在 th 上而非 thead 上 — border-separate 模式下
                 // thead/tr 的背景不會渲染，sticky 時會透明導致資料穿透顯示
-                th.className = `px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-grab select-none bg-gray-50 hover:bg-gray-100 transition-colors group whitespace-nowrap border-b border-gray-200 col-idx-${index}`;
-                th.title = '點擊排序・拖曳重排欄位';
+                th.className = `relative px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-grab select-none bg-gray-50 hover:bg-gray-100 transition-colors group whitespace-nowrap border-b border-gray-200 col-idx-${index}`;
+                th.title = '點擊排序・Shift+點擊加入多欄排序・拖曳重排欄位';
                 // Ignore click if it fired right after a drag (within 200ms)
-                th.onclick = () => { if (Date.now() - dragEndTime > 200) sortTable(index); };
-                th.innerHTML = `<div class="flex items-center space-x-1"><i class="fas fa-grip-vertical text-gray-200 group-hover:text-gray-400 text-xs mr-0.5 shrink-0"></i><span>${escapeHtml(header)}</span><i class="fas fa-sort sort-icon text-gray-400 group-hover:text-gray-600 ml-1"></i></div>`;
+                th.onclick = (e) => {
+                    // 點到 resizer 不觸發排序
+                    if (e.target.classList.contains('col-resizer')) return;
+                    if (Date.now() - dragEndTime > 200) sortTable(index, e.shiftKey);
+                };
+                th.innerHTML = `<div class="flex items-center space-x-1"><i class="fas fa-grip-vertical text-gray-200 group-hover:text-gray-400 text-xs mr-0.5 shrink-0"></i><span class="sort-label">${escapeHtml(header)}</span><i class="fas fa-sort sort-icon text-gray-400 group-hover:text-gray-600 ml-1"></i></div>`;
 
                 th.draggable = true;
                 th.addEventListener('dragstart', (e) => {
@@ -832,8 +989,27 @@
                     }
                 });
 
+                // 欄寬調整手柄
+                const resizer = document.createElement('div');
+                resizer.className = 'col-resizer';
+                resizer.addEventListener('mousedown', (e) => startColResize(e, th, resizer, index));
+                // 阻止從 resizer 觸發 drag/click
+                resizer.addEventListener('dragstart', (e) => e.preventDefault());
+                resizer.addEventListener('click', (e) => e.stopPropagation());
+                th.appendChild(resizer);
+
                 tableHeader.appendChild(th);
             });
+
+            // 套用目前的排序狀態（若有）
+            if (sortKeys.length > 0) {
+                const ths = tableHeader.querySelectorAll('th');
+                for (let i = 1; i < ths.length; i++) {
+                    const colIdx = i - 1;
+                    const keyIdx = sortKeys.findIndex(k => k.col === colIdx);
+                    updateThSortVisual(ths[i], keyIdx >= 0 ? sortKeys[keyIdx] : null, keyIdx, sortKeys.length);
+                }
+            }
 
             tableBody.innerHTML = '';
             const fragment = document.createDocumentFragment();
@@ -898,35 +1074,83 @@
             tableBody.appendChild(fragment);
         }
 
-        function sortTable(colIndex) {
-            const ths = tableHeader.querySelectorAll('th');
-            // ths[0] is #, so data columns start from index 1. 
-            // The th corresponding to colIndex is ths[colIndex + 1]
-            // We need to clear icons from ALL data columns
-            for(let i=1; i<ths.length; i++) {
-                ths[i].classList.remove('sorted-asc', 'sorted-desc');
-            }
-            
-            const currentTh = ths[colIndex + 1]; 
+        function sortTable(colIndex, shiftKey = false) {
+            const existing = sortKeys.findIndex(k => k.col === colIndex);
 
-            if (sortCol === colIndex) sortAsc = !sortAsc;
-            else { sortCol = colIndex; sortAsc = true; }
-
-            currentTh.classList.add(sortAsc ? 'sorted-asc' : 'sorted-desc');
-            
-            const sorted = [...currentData].sort((a, b) => {
-                let valA = a[colIndex] || '';
-                let valB = b[colIndex] || '';
-                const numA = parseFloat(valA);
-                const numB = parseFloat(valB);
-                if (!isNaN(numA) && !isNaN(numB) && !/^\s*$/.test(valA) && !/^\s*$/.test(valB)) {
-                    return sortAsc ? numA - numB : numB - numA;
+            if (shiftKey) {
+                // Shift+點擊：加入新的排序鍵，或切換已存在鍵的方向
+                if (existing >= 0) sortKeys[existing].asc = !sortKeys[existing].asc;
+                else sortKeys.push({ col: colIndex, asc: true });
+            } else {
+                // 一般點擊：若已是唯一排序鍵則切換方向，否則重置為單鍵
+                if (sortKeys.length === 1 && sortKeys[0].col === colIndex) {
+                    sortKeys[0].asc = !sortKeys[0].asc;
+                } else {
+                    sortKeys = [{ col: colIndex, asc: true }];
                 }
-                return sortAsc ? String(valA).localeCompare(String(valB)) : String(valB).localeCompare(String(valA));
-            });
+            }
+
+            applySortAndRender();
+        }
+
+        function applySortAndRender() {
+            const sorted = sortKeys.length === 0
+                ? [...currentData]
+                : [...currentData].sort((a, b) => compareByKeys(a, b, sortKeys));
+
+            // 更新表頭視覺狀態
+            const ths = tableHeader.querySelectorAll('th');
+            for (let i = 1; i < ths.length; i++) {
+                const colIdx = i - 1;
+                const keyIdx = sortKeys.findIndex(k => k.col === colIdx);
+                updateThSortVisual(ths[i], keyIdx >= 0 ? sortKeys[keyIdx] : null, keyIdx, sortKeys.length);
+            }
 
             renderTableBodyOnly(sorted);
             if (searchInput.value) filterTable(searchInput.value.toLowerCase());
+        }
+
+        function compareByKeys(a, b, keys) {
+            for (const { col, asc } of keys) {
+                const valA = a[col] ?? '';
+                const valB = b[col] ?? '';
+                const numA = parseFloat(valA);
+                const numB = parseFloat(valB);
+                let cmp;
+                if (!isNaN(numA) && !isNaN(numB) && !/^\s*$/.test(String(valA)) && !/^\s*$/.test(String(valB))) {
+                    cmp = numA - numB;
+                } else {
+                    cmp = String(valA).localeCompare(String(valB));
+                }
+                if (cmp !== 0) return asc ? cmp : -cmp;
+            }
+            return 0;
+        }
+
+        function updateThSortVisual(th, sortKey, keyIdx, totalKeys) {
+            const icon = th.querySelector('.sort-icon');
+            const badge = th.querySelector('.sort-order-badge');
+            if (!sortKey) {
+                th.classList.remove('is-sorted');
+                if (icon) icon.className = 'fas fa-sort sort-icon text-gray-400 group-hover:text-gray-600 ml-1';
+                if (badge) badge.remove();
+                return;
+            }
+            th.classList.add('is-sorted');
+            if (icon) icon.className = `fas fa-sort-${sortKey.asc ? 'up' : 'down'} sort-icon ml-1`;
+            // 只有多鍵排序時才顯示順位 badge
+            if (totalKeys > 1) {
+                if (!badge) {
+                    const span = document.createElement('span');
+                    span.className = 'sort-order-badge';
+                    span.textContent = keyIdx + 1;
+                    th.querySelector('div').appendChild(span);
+                } else {
+                    badge.textContent = keyIdx + 1;
+                }
+            } else if (badge) {
+                badge.remove();
+            }
         }
 
         // --- Column Reordering ---
@@ -951,14 +1175,66 @@
             const newHidden = new Set();
             hiddenColumns.forEach(idx => newHidden.add(remapColIndex(idx, fromIndex, toIndex)));
 
+            // 重新映射排序鍵與欄寬的欄位 index
+            sortKeys = sortKeys.map(k => ({ col: remapColIndex(k.col, fromIndex, toIndex), asc: k.asc }));
+            const newWidths = new Map();
+            colWidths.forEach((w, idx) => newWidths.set(remapColIndex(idx, fromIndex, toIndex), w));
+            colWidths = newWidths;
+            updateColWidthStyles();
+
             headers = newHeaders;
             currentData = newData;
             hiddenColumns = newHidden;
-            sortCol = -1;
-            sortAsc = true;
 
             renderTable(headers, currentData);
             if (searchInput.value) filterTable(searchInput.value.toLowerCase());
+        }
+
+        // --- Column Resizing ---
+
+        function startColResize(e, th, resizer, colIndex) {
+            e.preventDefault();
+            e.stopPropagation();
+            const startX = e.clientX;
+            const startWidth = th.offsetWidth;
+            const MIN_WIDTH = 60;
+
+            // 拖曳手柄期間禁用 th 的 draggable，避免衝突
+            th.draggable = false;
+            resizer.classList.add('resizing');
+            document.body.classList.add('is-resizing');
+
+            const onMove = (moveEvt) => {
+                const delta = moveEvt.clientX - startX;
+                const newWidth = Math.max(MIN_WIDTH, startWidth + delta);
+                colWidths.set(colIndex, newWidth);
+                updateColWidthStyles();
+            };
+
+            const onUp = () => {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+                resizer.classList.remove('resizing');
+                document.body.classList.remove('is-resizing');
+                // 恢復 draggable（延遲避免 click 事件誤觸排序）
+                setTimeout(() => { th.draggable = true; }, 0);
+            };
+
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        }
+
+        function updateColWidthStyles() {
+            if (colWidths.size === 0) {
+                colWidthStyles.innerHTML = '';
+                return;
+            }
+            // 覆寫 Tailwind 的 max-w-xs，並讓 th/td 同步使用設定寬度
+            const rules = [];
+            colWidths.forEach((w, idx) => {
+                rules.push(`.col-idx-${idx} { width: ${w}px !important; min-width: ${w}px !important; max-width: ${w}px !important; }`);
+            });
+            colWidthStyles.innerHTML = rules.join('\n');
         }
 
         function remapColIndex(idx, from, to) {
