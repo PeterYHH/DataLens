@@ -302,6 +302,7 @@
         const STORAGE_KEY = 'datalens_raw_data';
         let hiddenColumns = new Set(); // Track hidden column indices
         let dragSourceCol = -1; // Track source column index during drag
+        let dragEndTime = 0;   // Prevent click-sort from firing after a drag
 
         // --- Event Listeners ---
 
@@ -361,6 +362,14 @@
             const text = td.innerText;
             if (text) copyToClipboard(text);
         });
+
+        // Prevent data cells from becoming drop targets during column drag
+        tableBody.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'none';
+            tableHeader.querySelectorAll('th').forEach(t => t.style.boxShadow = '');
+        });
+        tableBody.addEventListener('drop', (e) => e.preventDefault());
 
         clearBtn.addEventListener('click', () => {
             if (confirm('確定要清空目前的所有資料與暫存嗎？')) {
@@ -761,21 +770,43 @@
 
             headers.forEach((header, index) => {
                 const th = document.createElement('th');
-                th.className = `px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-grab select-none hover:bg-gray-100 transition-colors group whitespace-nowrap border-b border-gray-200 col-idx-${index}`;
+                // bg-gray-50 必須在 th 上而非 thead 上 — border-separate 模式下
+                // thead/tr 的背景不會渲染，sticky 時會透明導致資料穿透顯示
+                th.className = `px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-grab select-none bg-gray-50 hover:bg-gray-100 transition-colors group whitespace-nowrap border-b border-gray-200 col-idx-${index}`;
                 th.title = '點擊排序・拖曳重排欄位';
-                th.onclick = () => sortTable(index);
+                // Ignore click if it fired right after a drag (within 200ms)
+                th.onclick = () => { if (Date.now() - dragEndTime > 200) sortTable(index); };
                 th.innerHTML = `<div class="flex items-center space-x-1"><i class="fas fa-grip-vertical text-gray-200 group-hover:text-gray-400 text-xs mr-0.5 shrink-0"></i><span>${escapeHtml(header)}</span><i class="fas fa-sort sort-icon text-gray-400 group-hover:text-gray-600 ml-1"></i></div>`;
 
                 th.draggable = true;
                 th.addEventListener('dragstart', (e) => {
                     dragSourceCol = index;
                     e.dataTransfer.effectAllowed = 'move';
-                    setTimeout(() => th.classList.add('opacity-40'), 0);
+                    // Use a custom ghost (pill shape) to avoid the browser capturing data rows
+                    // in the default ghost image (happens due to sticky table layout)
+                    const ghost = document.createElement('div');
+                    ghost.textContent = header;
+                    ghost.style.cssText = 'position:fixed;top:-200px;left:0;background:#4f46e5;color:#fff;padding:5px 14px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap;letter-spacing:0.05em;box-shadow:0 2px 8px rgba(0,0,0,.25)';
+                    document.body.appendChild(ghost);
+                    e.dataTransfer.setDragImage(ghost, ghost.offsetWidth / 2, 16);
+                    // Use outline+bg instead of opacity — opacity creates a new stacking
+                    // context that breaks z-index on the sticky header
+                    setTimeout(() => {
+                        document.body.removeChild(ghost);
+                        th.style.outline = '2px dashed #818cf8';
+                        th.style.outlineOffset = '-3px';
+                        th.style.background = '#eef2ff';
+                        tableBody.style.pointerEvents = 'none'; // block data cell hover during drag
+                    }, 0);
                 });
                 th.addEventListener('dragend', () => {
-                    th.classList.remove('opacity-40');
+                    th.style.outline = '';
+                    th.style.outlineOffset = '';
+                    th.style.background = '';
+                    tableBody.style.pointerEvents = ''; // restore body interactions
                     tableHeader.querySelectorAll('th').forEach(t => t.style.boxShadow = '');
                     dragSourceCol = -1;
+                    dragEndTime = Date.now();
                 });
                 th.addEventListener('dragover', (e) => {
                     e.preventDefault();
@@ -791,7 +822,13 @@
                     e.preventDefault();
                     tableHeader.querySelectorAll('th').forEach(t => t.style.boxShadow = '');
                     if (dragSourceCol !== -1 && dragSourceCol !== index) {
-                        reorderColumns(dragSourceCol, index);
+                        const from = dragSourceCol;
+                        const to = index;
+                        // CRITICAL: defer DOM changes to AFTER dragend fires.
+                        // Calling renderTable() inside drop (before dragend) destroys
+                        // the dragged <th> while the browser still holds a reference,
+                        // causing it to re-insert the element and corrupt the layout.
+                        setTimeout(() => reorderColumns(from, to), 0);
                     }
                 });
 
