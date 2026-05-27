@@ -92,6 +92,36 @@
             cursor: col-resize !important;
         }
 
+        /* 欄位統計 info 按鈕 — hover 才顯示 */
+        .col-info-btn {
+            opacity: 0;
+            transition: opacity 0.15s;
+            cursor: pointer;
+            color: #9ca3af;
+            margin-left: 4px;
+            padding: 2px 4px;
+        }
+        th:hover .col-info-btn, th.is-sorted .col-info-btn {
+            opacity: 0.7;
+        }
+        .col-info-btn:hover {
+            opacity: 1 !important;
+            color: #4f46e5;
+        }
+
+        /* 統計 modal row */
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            padding: 6px 0;
+            border-bottom: 1px solid #f3f4f6;
+            font-size: 13px;
+        }
+        .stat-row:last-child { border-bottom: none; }
+        .stat-label { color: #6b7280; }
+        .stat-value { color: #111827; font-weight: 600; font-family: ui-monospace, monospace; }
+
         /* 快速鍵說明 modal */
         .kbd {
             display: inline-block;
@@ -326,6 +356,33 @@
         <span id="toastMsg">已複製</span>
     </div>
 
+    <!-- Cell Detail Modal -->
+    <div id="cellDetailModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+        <div class="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6 flex flex-col" id="cellDetailDialog" style="max-height: 80vh;">
+            <div class="flex justify-between items-center mb-3 flex-none">
+                <h2 class="text-lg font-bold text-gray-900 flex items-center"><i class="fas fa-align-left text-indigo-600 mr-2"></i><span id="cellDetailTitle">儲存格內容</span></h2>
+                <button id="cellDetailCloseBtn" class="text-gray-400 hover:text-gray-600 text-xl leading-none" title="關閉 (Esc)">&times;</button>
+            </div>
+            <div class="text-xs text-gray-500 mb-2 flex-none" id="cellDetailMeta">— 字 / — 行</div>
+            <div class="flex-grow overflow-auto custom-scrollbar bg-gray-50 border border-gray-200 rounded-md p-3 font-mono text-sm whitespace-pre-wrap break-words text-gray-800" id="cellDetailContent" style="min-height: 120px;"></div>
+            <div class="flex-none flex justify-end gap-2 mt-4">
+                <button id="cellDetailCopyBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium"><i class="fas fa-copy mr-1"></i>複製內容</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Column Stats Modal -->
+    <div id="colStatsModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+        <div class="bg-white rounded-xl shadow-xl max-w-md w-full p-6 flex flex-col" id="colStatsDialog" style="max-height: 80vh;">
+            <div class="flex justify-between items-center mb-4 flex-none">
+                <h2 class="text-lg font-bold text-gray-900 flex items-center"><i class="fas fa-chart-simple text-indigo-600 mr-2"></i><span>欄位統計</span><span id="colStatsName" class="ml-2 text-sm font-normal text-gray-500 truncate"></span></h2>
+                <button id="colStatsCloseBtn" class="text-gray-400 hover:text-gray-600 text-xl leading-none" title="關閉 (Esc)">&times;</button>
+            </div>
+            <div id="colStatsTypeTag" class="flex-none mb-3"></div>
+            <div class="flex-grow overflow-auto custom-scrollbar" id="colStatsContent"></div>
+        </div>
+    </div>
+
     <!-- Keyboard Shortcuts Modal -->
     <div id="kbdHelpModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
         <div class="bg-white rounded-xl shadow-xl max-w-md w-full p-6" id="kbdHelpDialog">
@@ -385,6 +442,19 @@
         const kbdHelpDialog = document.getElementById('kbdHelpDialog');
         const kbdHelpCloseBtn = document.getElementById('kbdHelpCloseBtn');
         const colWidthStyles = document.getElementById('colWidthStyles');
+        const cellDetailModal = document.getElementById('cellDetailModal');
+        const cellDetailDialog = document.getElementById('cellDetailDialog');
+        const cellDetailTitle = document.getElementById('cellDetailTitle');
+        const cellDetailMeta = document.getElementById('cellDetailMeta');
+        const cellDetailContent = document.getElementById('cellDetailContent');
+        const cellDetailCloseBtn = document.getElementById('cellDetailCloseBtn');
+        const cellDetailCopyBtn = document.getElementById('cellDetailCopyBtn');
+        const colStatsModal = document.getElementById('colStatsModal');
+        const colStatsDialog = document.getElementById('colStatsDialog');
+        const colStatsName = document.getElementById('colStatsName');
+        const colStatsTypeTag = document.getElementById('colStatsTypeTag');
+        const colStatsContent = document.getElementById('colStatsContent');
+        const colStatsCloseBtn = document.getElementById('colStatsCloseBtn');
 
         let currentData = [];
         let headers = [];
@@ -453,8 +523,34 @@
             const td = e.target.closest('td');
             if (!td) return;
             const text = td.innerText;
-            if (text) copyToClipboard(text);
+            if (!text) return;
+            // 被截斷或文字太長/含換行 → 開詳細視窗；否則直接複製
+            const isTruncated = td.scrollWidth > td.clientWidth + 1;
+            const isLongOrMultiline = text.length > 30 || text.includes('\n');
+            if (isTruncated || isLongOrMultiline) {
+                const colIdx = [...td.parentNode.children].indexOf(td) - 1; // 扣掉 # 欄
+                const colName = headers[colIdx] || '儲存格內容';
+                openCellDetail(text, colName);
+            } else {
+                copyToClipboard(text);
+            }
         });
+
+        cellDetailCloseBtn.addEventListener('click', () => cellDetailModal.classList.add('hidden'));
+        cellDetailModal.addEventListener('click', (e) => {
+            if (!cellDetailDialog.contains(e.target)) cellDetailModal.classList.add('hidden');
+        });
+        cellDetailCopyBtn.addEventListener('click', () => {
+            copyToClipboard(cellDetailContent.textContent);
+        });
+
+        function openCellDetail(text, colName) {
+            cellDetailTitle.textContent = colName;
+            cellDetailContent.textContent = text;
+            const lines = text.split(/\r?\n/).length;
+            cellDetailMeta.textContent = `${text.length.toLocaleString()} 字・${lines.toLocaleString()} 行`;
+            cellDetailModal.classList.remove('hidden');
+        }
 
         // Prevent data cells from becoming drop targets during column drag
         tableBody.addEventListener('dragover', (e) => {
@@ -489,11 +585,18 @@
         document.addEventListener('keydown', (e) => {
             const tag = (e.target.tagName || '').toLowerCase();
             const isTyping = tag === 'input' || tag === 'textarea' || tag === 'select';
-            const modalOpen = !kbdHelpModal.classList.contains('hidden');
 
-            // Esc：優先關閉 modal；其次清除搜尋框；最後關閉欄位選單
+            // Esc：依優先序關閉任何開啟的 modal、欄位選單，或清除搜尋
             if (e.key === 'Escape') {
-                if (modalOpen) { toggleKbdHelp(false); e.preventDefault(); return; }
+                // 依序檢查所有 modal
+                const modals = [cellDetailModal, colStatsModal, kbdHelpModal];
+                for (const m of modals) {
+                    if (!m.classList.contains('hidden')) {
+                        m.classList.add('hidden');
+                        e.preventDefault();
+                        return;
+                    }
+                }
                 if (e.target === searchInput) {
                     searchInput.value = '';
                     filterTable('');
@@ -931,9 +1034,15 @@
                 th.onclick = (e) => {
                     // 點到 resizer 不觸發排序
                     if (e.target.classList.contains('col-resizer')) return;
+                    // 點到 info 圖示 → 開統計，不觸發排序
+                    if (e.target.classList.contains('col-info-btn')) {
+                        e.stopPropagation();
+                        openColStats(index);
+                        return;
+                    }
                     if (Date.now() - dragEndTime > 200) sortTable(index, e.shiftKey);
                 };
-                th.innerHTML = `<div class="flex items-center space-x-1"><i class="fas fa-grip-vertical text-gray-200 group-hover:text-gray-400 text-xs mr-0.5 shrink-0"></i><span class="sort-label">${escapeHtml(header)}</span><i class="fas fa-sort sort-icon text-gray-400 group-hover:text-gray-600 ml-1"></i></div>`;
+                th.innerHTML = `<div class="flex items-center space-x-1"><i class="fas fa-grip-vertical text-gray-200 group-hover:text-gray-400 text-xs mr-0.5 shrink-0"></i><span class="sort-label">${escapeHtml(header)}</span><i class="fas fa-sort sort-icon text-gray-400 group-hover:text-gray-600 ml-1"></i><i class="fas fa-circle-info col-info-btn text-xs" title="欄位統計"></i></div>`;
 
                 th.draggable = true;
                 th.addEventListener('dragstart', (e) => {
@@ -1037,6 +1146,19 @@
                 fragment.appendChild(tr);
             });
             tableBody.appendChild(fragment);
+            markTruncatedCells();
+        }
+
+        // 在 td 被截斷時更新 title，提示可點擊展開
+        function markTruncatedCells() {
+            requestAnimationFrame(() => {
+                tableBody.querySelectorAll('td').forEach(td => {
+                    if (td.scrollWidth > td.clientWidth + 1) {
+                        const txt = td.textContent;
+                        td.title = `${txt}\n\n（被截斷，點擊查看完整內容）`;
+                    }
+                });
+            });
         }
 
         function filterTable(term) {
@@ -1072,6 +1194,7 @@
                 fragment.appendChild(tr);
             });
             tableBody.appendChild(fragment);
+            markTruncatedCells();
         }
 
         function sortTable(colIndex, shiftKey = false) {
@@ -1242,6 +1365,105 @@
             if (from < to) { if (idx > from && idx <= to) return idx - 1; }
             else { if (idx >= to && idx < from) return idx + 1; }
             return idx;
+        }
+
+        // --- Column Stats ---
+
+        colStatsCloseBtn.addEventListener('click', () => colStatsModal.classList.add('hidden'));
+        colStatsModal.addEventListener('click', (e) => {
+            if (!colStatsDialog.contains(e.target)) colStatsModal.classList.add('hidden');
+        });
+
+        function openColStats(colIndex) {
+            const stats = computeColStats(colIndex);
+            colStatsName.textContent = headers[colIndex] || '';
+            renderColStats(stats);
+            colStatsModal.classList.remove('hidden');
+        }
+
+        function computeColStats(colIndex) {
+            const total = currentData.length;
+            const values = currentData.map(row => row[colIndex]);
+            // 空值：null / undefined / 空字串
+            const empty = values.filter(v => v === null || v === undefined || String(v).trim() === '').length;
+            const nonEmpty = values.filter(v => v !== null && v !== undefined && String(v).trim() !== '');
+
+            // 嘗試解析為數字
+            const numericPairs = nonEmpty.map(v => {
+                const n = parseFloat(v);
+                return (!isNaN(n) && isFinite(n) && /^-?[\d,.\sEe+-]+$/.test(String(v).trim())) ? n : null;
+            });
+            const numbers = numericPairs.filter(n => n !== null);
+            const isNumeric = nonEmpty.length > 0 && (numbers.length / nonEmpty.length) >= 0.8;
+
+            const stats = { total, empty, nonEmptyCount: nonEmpty.length, isNumeric };
+
+            if (isNumeric && numbers.length > 0) {
+                const sorted = [...numbers].sort((a, b) => a - b);
+                const sum = numbers.reduce((s, n) => s + n, 0);
+                stats.min = sorted[0];
+                stats.max = sorted[sorted.length - 1];
+                stats.sum = sum;
+                stats.mean = sum / numbers.length;
+                stats.median = sorted.length % 2 === 0
+                    ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
+                    : sorted[(sorted.length - 1) / 2];
+                stats.numericCount = numbers.length;
+                stats.nonNumericCount = nonEmpty.length - numbers.length;
+            } else {
+                // 文字統計
+                const freq = new Map();
+                nonEmpty.forEach(v => {
+                    const k = String(v);
+                    freq.set(k, (freq.get(k) || 0) + 1);
+                });
+                stats.uniqueCount = freq.size;
+                stats.top5 = [...freq.entries()]
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 5);
+            }
+            return stats;
+        }
+
+        function renderColStats(s) {
+            const fmt = (n) => {
+                if (!Number.isFinite(n)) return '—';
+                if (Number.isInteger(n)) return n.toLocaleString();
+                // 小數最多 4 位，但移除多餘的零
+                return parseFloat(n.toFixed(4)).toLocaleString();
+            };
+            const pct = (n, base) => base > 0 ? ` (${(n / base * 100).toFixed(1)}%)` : '';
+
+            colStatsTypeTag.innerHTML = s.isNumeric
+                ? '<span class="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-700">數字欄</span>'
+                : '<span class="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-amber-100 text-amber-700">文字欄</span>';
+
+            const rows = [];
+            rows.push(`<div class="stat-row"><span class="stat-label">總筆數</span><span class="stat-value">${fmt(s.total)}</span></div>`);
+            rows.push(`<div class="stat-row"><span class="stat-label">空值</span><span class="stat-value">${fmt(s.empty)}${pct(s.empty, s.total)}</span></div>`);
+
+            if (s.isNumeric) {
+                rows.push(`<div class="stat-row"><span class="stat-label">有效數字</span><span class="stat-value">${fmt(s.numericCount)}${pct(s.numericCount, s.total)}</span></div>`);
+                if (s.nonNumericCount > 0) {
+                    rows.push(`<div class="stat-row"><span class="stat-label">非數字</span><span class="stat-value">${fmt(s.nonNumericCount)}</span></div>`);
+                }
+                rows.push('<div class="h-2"></div>');
+                rows.push(`<div class="stat-row"><span class="stat-label">最小值</span><span class="stat-value">${fmt(s.min)}</span></div>`);
+                rows.push(`<div class="stat-row"><span class="stat-label">最大值</span><span class="stat-value">${fmt(s.max)}</span></div>`);
+                rows.push(`<div class="stat-row"><span class="stat-label">平均</span><span class="stat-value">${fmt(s.mean)}</span></div>`);
+                rows.push(`<div class="stat-row"><span class="stat-label">中位數</span><span class="stat-value">${fmt(s.median)}</span></div>`);
+                rows.push(`<div class="stat-row"><span class="stat-label">總和</span><span class="stat-value">${fmt(s.sum)}</span></div>`);
+            } else {
+                rows.push(`<div class="stat-row"><span class="stat-label">唯一值</span><span class="stat-value">${fmt(s.uniqueCount)}</span></div>`);
+                if (s.top5 && s.top5.length > 0) {
+                    rows.push('<div class="mt-3 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">Top 5 出現頻率</div>');
+                    s.top5.forEach(([k, c]) => {
+                        const display = k.length > 40 ? k.slice(0, 40) + '…' : k;
+                        rows.push(`<div class="stat-row"><span class="stat-label truncate flex-1 mr-3" title="${escapeHtml(k)}">${escapeHtml(display)}</span><span class="stat-value whitespace-nowrap">${fmt(c)}${pct(c, s.nonEmptyCount)}</span></div>`);
+                    });
+                }
+            }
+            colStatsContent.innerHTML = rows.join('');
         }
 
         function escapeHtml(text) {
