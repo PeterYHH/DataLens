@@ -322,7 +322,27 @@
                     </div>
 
                     <span id="recordCount" class="text-sm text-gray-600 whitespace-nowrap mx-1">0 筆</span>
-                    
+
+                    <!-- Top Pagination Nav (有資料時永遠顯示) -->
+                    <div id="toolbarPageNav" class="hidden items-center gap-1 border-l border-gray-200 pl-2">
+                        <div id="topPageNavControls" class="hidden items-center gap-1">
+                            <button id="topPrevPageBtn" class="px-1.5 py-1 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-gray-600" title="上一頁">
+                                <i class="fas fa-chevron-left text-xs"></i>
+                            </button>
+                            <span class="text-sm text-gray-600 whitespace-nowrap">第 <span id="topPageNumDisplay" class="font-semibold text-indigo-600">1</span>/<span id="topTotalPagesDisplay" class="font-semibold">1</span> 頁</span>
+                            <button id="topNextPageBtn" class="px-1.5 py-1 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-gray-600" title="下一頁">
+                                <i class="fas fa-chevron-right text-xs"></i>
+                            </button>
+                        </div>
+                        <select id="topPageSizeSelect" class="border border-gray-300 rounded px-1.5 py-1 text-xs focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 bg-white cursor-pointer" title="每頁筆數">
+                            <option value="50">50筆</option>
+                            <option value="100" selected>100筆</option>
+                            <option value="200">200筆</option>
+                            <option value="500">500筆</option>
+                            <option value="all">全部</option>
+                        </select>
+                    </div>
+
                     <span id="formatTag" class="px-2 py-0.5 rounded text-xs font-semibold bg-gray-200 text-gray-600 whitespace-nowrap hidden sm:inline-block">未知</span>
                     
                     <div class="border-l border-gray-300 h-6 mx-1 hidden sm:block"></div>
@@ -560,6 +580,13 @@
         const pageNumDisplay = document.getElementById('pageNumDisplay');
         const totalPagesDisplay = document.getElementById('totalPagesDisplay');
         const pageNavControls = document.getElementById('pageNavControls');
+        const toolbarPageNav = document.getElementById('toolbarPageNav');
+        const topPrevPageBtn = document.getElementById('topPrevPageBtn');
+        const topNextPageBtn = document.getElementById('topNextPageBtn');
+        const topPageNumDisplay = document.getElementById('topPageNumDisplay');
+        const topTotalPagesDisplay = document.getElementById('topTotalPagesDisplay');
+        const topPageSizeSelect = document.getElementById('topPageSizeSelect');
+        const topPageNavControls = document.getElementById('topPageNavControls');
         const colFilterMenu = document.getElementById('colFilterMenu');
         const colFilterTitle = document.getElementById('colFilterTitle');
         const colFilterSearch = document.getElementById('colFilterSearch');
@@ -631,6 +658,14 @@
 
         pageSizeSelect.addEventListener('change', () => {
             pageSize = pageSizeSelect.value === 'all' ? Infinity : parseInt(pageSizeSelect.value);
+            topPageSizeSelect.value = pageSizeSelect.value;
+            currentPage = 1;
+            renderTableBodyOnly(displayedRows, true);
+        });
+
+        topPageSizeSelect.addEventListener('change', () => {
+            pageSize = topPageSizeSelect.value === 'all' ? Infinity : parseInt(topPageSizeSelect.value);
+            pageSizeSelect.value = topPageSizeSelect.value;
             currentPage = 1;
             renderTableBodyOnly(displayedRows, true);
         });
@@ -640,6 +675,15 @@
         });
 
         nextPageBtn.addEventListener('click', () => {
+            const totalPages = pageSize === Infinity ? 1 : Math.ceil(displayedRows.length / pageSize);
+            if (currentPage < totalPages) { currentPage++; renderTableBodyOnly(displayedRows, true); }
+        });
+
+        topPrevPageBtn.addEventListener('click', () => {
+            if (currentPage > 1) { currentPage--; renderTableBodyOnly(displayedRows, true); }
+        });
+
+        topNextPageBtn.addEventListener('click', () => {
             const totalPages = pageSize === Infinity ? 1 : Math.ceil(displayedRows.length / pageSize);
             if (currentPage < totalPages) { currentPage++; renderTableBodyOnly(displayedRows, true); }
         });
@@ -913,6 +957,8 @@
             currentPage = 1;
             paginationBar.classList.add('hidden');
             pageNavControls.classList.add('hidden');
+            toolbarPageNav.classList.add('hidden');
+            topPageNavControls.style.display = 'none';
             colFilters.clear();
             colFilterMenu.classList.add('hidden');
         }
@@ -1601,20 +1647,32 @@
         }
 
         function updatePaginationBar(total) {
-            // 分頁列永遠顯示（有資料時），只有翻頁導覽依需要顯示
             paginationBar.classList.remove('hidden');
             const effSize = (pageSize === Infinity) ? total : pageSize;
             const totalPages = effSize > 0 ? Math.ceil(total / effSize) : 1;
 
-            if (pageSize === Infinity || total <= effSize) {
-                pageNavControls.classList.add('hidden');
-                return;
-            }
-            pageNavControls.classList.remove('hidden');
+            const needNav = !(pageSize === Infinity || total <= effSize);
+
+            // 底部：導覽按鈕按需顯示，選單永遠在
+            pageNavControls.classList.toggle('hidden', !needNav);
+
+            // 工具列：整塊永遠顯示，只有導覽按鈕按需顯示
+            toolbarPageNav.style.display = 'flex';
+            toolbarPageNav.classList.remove('hidden');
+            topPageNavControls.style.display = needNav ? 'flex' : 'none';
+            topPageSizeSelect.value = pageSize === Infinity ? 'all' : String(pageSize);
+
+            if (!needNav) return;
+
             pageNumDisplay.textContent = currentPage;
             totalPagesDisplay.textContent = totalPages;
             prevPageBtn.disabled = currentPage <= 1;
             nextPageBtn.disabled = currentPage >= totalPages;
+
+            topPageNumDisplay.textContent = currentPage;
+            topTotalPagesDisplay.textContent = totalPages;
+            topPrevPageBtn.disabled = currentPage <= 1;
+            topNextPageBtn.disabled = currentPage >= totalPages;
         }
 
         function sortTable(colIndex, shiftKey = false) {
