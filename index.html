@@ -109,6 +109,30 @@
             color: #4f46e5;
         }
 
+        /* 欄位篩選按鈕 */
+        .col-filter-btn {
+            opacity: 0;
+            transition: opacity 0.15s;
+            cursor: pointer;
+            color: #9ca3af;
+            margin-left: 2px;
+            padding: 2px 4px;
+        }
+        th:hover .col-filter-btn, th.has-filter .col-filter-btn {
+            opacity: 0.7;
+        }
+        .col-filter-btn:hover {
+            opacity: 1 !important;
+            color: #4f46e5;
+        }
+        th.has-filter .col-filter-btn {
+            color: #4f46e5 !important;
+            opacity: 1 !important;
+        }
+        th.has-filter {
+            background-color: #eff6ff !important;
+        }
+
         /* 統計 modal row */
         .stat-row {
             display: flex;
@@ -457,6 +481,25 @@
         </div>
     </div>
 
+    <!-- Column Filter Dropdown -->
+    <div id="colFilterMenu" class="hidden fixed bg-white border border-gray-200 rounded-lg shadow-xl z-[100] w-64">
+        <div class="p-2.5 border-b border-gray-100">
+            <div class="text-xs font-semibold text-gray-500 mb-2 truncate" id="colFilterTitle">篩選：</div>
+            <input id="colFilterSearch" type="text" placeholder="搜尋值…" class="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 outline-none">
+        </div>
+        <div class="px-2 py-1 border-b border-gray-100">
+            <label class="flex items-center gap-2 px-1 py-1 hover:bg-gray-50 cursor-pointer rounded select-none">
+                <input type="checkbox" id="colFilterSelectAll" class="h-3.5 w-3.5 text-indigo-600 rounded cursor-pointer">
+                <span class="text-sm text-gray-700 font-medium">全選</span>
+            </label>
+        </div>
+        <div id="colFilterList" class="overflow-y-auto custom-scrollbar p-1" style="max-height:210px;"></div>
+        <div class="p-2 border-t border-gray-100 flex items-center justify-between">
+            <button id="colFilterReset" class="text-sm text-gray-500 hover:text-red-500 px-2 py-1 rounded hover:bg-red-50 transition-colors">重設</button>
+            <button id="colFilterApply" class="text-sm bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded transition-colors">套用</button>
+        </div>
+    </div>
+
     <script>
         // DOM Elements
         const dropZone = document.getElementById('dropZone');
@@ -517,12 +560,21 @@
         const pageNumDisplay = document.getElementById('pageNumDisplay');
         const totalPagesDisplay = document.getElementById('totalPagesDisplay');
         const pageNavControls = document.getElementById('pageNavControls');
+        const colFilterMenu = document.getElementById('colFilterMenu');
+        const colFilterTitle = document.getElementById('colFilterTitle');
+        const colFilterSearch = document.getElementById('colFilterSearch');
+        const colFilterSelectAll = document.getElementById('colFilterSelectAll');
+        const colFilterList = document.getElementById('colFilterList');
+        const colFilterReset = document.getElementById('colFilterReset');
+        const colFilterApply = document.getElementById('colFilterApply');
 
         let currentData = [];
         let dupHighlightEnabled = false;
         let displayedRows = [];
         let currentPage = 1;
         let pageSize = 100;
+        let colFilters = new Map(); // colIndex → Set<string> 已選的值
+        let colFilterMenuCol = -1; // 目前開啟篩選的欄位
         let headers = [];
         let sortKeys = []; // 多欄排序：[{col, asc}, ...]，順序即為排序優先級
         let colWidths = new Map(); // 欄寬持久化：colIndex -> width(px)
@@ -547,10 +599,13 @@
             }
         });
 
-        // Close ColVis menu when clicking outside
+        // Close ColVis / ColFilter menu when clicking outside
         document.addEventListener('click', (e) => {
             if (!colVisBtn.contains(e.target) && !colVisMenu.contains(e.target)) {
                 colVisMenu.classList.add('hidden');
+            }
+            if (!colFilterMenu.contains(e.target) && !e.target.classList.contains('col-filter-btn')) {
+                colFilterMenu.classList.add('hidden');
             }
         });
 
@@ -697,7 +752,7 @@
             // Esc：依優先序關閉任何開啟的 modal、欄位選單，或清除搜尋
             if (e.key === 'Escape') {
                 // 依序檢查所有 modal
-                const modals = [cellDetailModal, colStatsModal, kbdHelpModal];
+                const modals = [cellDetailModal, colStatsModal, kbdHelpModal, colFilterMenu];
                 for (const m of modals) {
                     if (!m.classList.contains('hidden')) {
                         m.classList.add('hidden');
@@ -858,6 +913,8 @@
             currentPage = 1;
             paginationBar.classList.add('hidden');
             pageNavControls.classList.add('hidden');
+            colFilters.clear();
+            colFilterMenu.classList.add('hidden');
         }
 
         function copyToClipboard(text) {
@@ -994,8 +1051,10 @@
             sortKeys = [];
             colWidths.clear();
             updateColWidthStyles();
-            hiddenColumns.clear(); // Reset visibility when switching tables
+            hiddenColumns.clear();
             updateColVisStyles();
+            colFilters.clear();
+            colFilterMenu.classList.add('hidden');
 
             try {
                 const headerSet = new Set();
@@ -1033,6 +1092,8 @@
             updateColWidthStyles();
             hiddenColumns.clear();
             updateColVisStyles();
+            colFilters.clear();
+            colFilterMenu.classList.add('hidden');
 
             try {
                 const delimiter = getDelimiter();
@@ -1153,9 +1214,15 @@
                         openColStats(index);
                         return;
                     }
+                    // 點到 filter 圖示 → 開篩選，不觸發排序
+                    if (e.target.classList.contains('col-filter-btn')) {
+                        e.stopPropagation();
+                        openColFilter(index, e.target);
+                        return;
+                    }
                     if (Date.now() - dragEndTime > 200) sortTable(index, e.shiftKey);
                 };
-                th.innerHTML = `<div class="flex items-center space-x-1"><i class="fas fa-grip-vertical text-gray-200 group-hover:text-gray-400 text-xs mr-0.5 shrink-0"></i><span class="sort-label">${escapeHtml(header)}</span><i class="fas fa-sort sort-icon text-gray-400 group-hover:text-gray-600 ml-1"></i><i class="fas fa-circle-info col-info-btn text-xs" title="欄位統計"></i></div>`;
+                th.innerHTML = `<div class="flex items-center space-x-1"><i class="fas fa-grip-vertical text-gray-200 group-hover:text-gray-400 text-xs mr-0.5 shrink-0"></i><span class="sort-label">${escapeHtml(header)}</span><i class="fas fa-sort sort-icon text-gray-400 group-hover:text-gray-600 ml-1"></i><i class="fas fa-circle-info col-info-btn text-xs" title="欄位統計"></i><i class="fas fa-filter col-filter-btn text-xs" title="篩選此欄"></i></div>`;
 
                 th.draggable = true;
                 th.addEventListener('dragstart', (e) => {
@@ -1233,6 +1300,7 @@
                 }
             }
 
+            updateColFilterVisuals();
             renderTableBodyOnly(rows);
         }
 
@@ -1297,9 +1365,11 @@
         }
 
         function filterTable(term) {
+            const baseRows = applyColFilters(currentData);
+            const hasFilter = colFilters.size > 0;
             if (!term || !term.trim()) {
-                renderTableBodyOnly(currentData);
-                recordCount.innerText = `共 ${currentData.length} 筆`;
+                renderTableBodyOnly(baseRows);
+                recordCount.innerText = hasFilter ? `篩選結果：${baseRows.length} 筆` : `共 ${baseRows.length} 筆`;
                 searchInput.classList.remove('border-red-400', 'ring-1', 'ring-red-300');
                 return;
             }
@@ -1307,22 +1377,19 @@
             try {
                 groups = parseSearchQuery(term);
             } catch (err) {
-                // 語法錯誤（例如壞掉的 regex）→ 退回原 contains 行為
                 searchInput.classList.add('border-red-400', 'ring-1', 'ring-red-300');
-                const fallback = currentData.filter(row => row.some(cell => String(cell ?? '').toLowerCase().includes(term.toLowerCase())));
+                const fallback = baseRows.filter(row => row.some(cell => String(cell ?? '').toLowerCase().includes(term.toLowerCase())));
                 renderTableBodyOnly(fallback);
                 recordCount.innerText = `搜尋結果：${fallback.length} 筆（語法錯誤，已退回一般搜尋）`;
                 return;
             }
             searchInput.classList.remove('border-red-400', 'ring-1', 'ring-red-300');
-            // 無有效 group（例如只輸入了 "OR"）→ 顯示全部
             if (groups.length === 0) {
-                renderTableBodyOnly(currentData);
-                recordCount.innerText = `共 ${currentData.length} 筆`;
+                renderTableBodyOnly(baseRows);
+                recordCount.innerText = hasFilter ? `篩選結果：${baseRows.length} 筆` : `共 ${baseRows.length} 筆`;
                 return;
             }
-            // groups 之間 OR、group 內 AND
-            const filtered = currentData.filter(row =>
+            const filtered = baseRows.filter(row =>
                 groups.some(group => group.every(t => matchToken(row, t)))
             );
             renderTableBodyOnly(filtered);
@@ -1570,9 +1637,10 @@
         }
 
         function applySortAndRender() {
+            const base = applyColFilters(currentData);
             const sorted = sortKeys.length === 0
-                ? [...currentData]
-                : [...currentData].sort((a, b) => compareByKeys(a, b, sortKeys));
+                ? [...base]
+                : [...base].sort((a, b) => compareByKeys(a, b, sortKeys));
 
             // 更新表頭視覺狀態
             const ths = tableHeader.querySelectorAll('th');
@@ -1584,6 +1652,9 @@
 
             renderTableBodyOnly(sorted);
             if (searchInput.value) filterTable(searchInput.value);
+            else recordCount.innerText = colFilters.size > 0
+                ? `篩選結果：${sorted.length} 筆`
+                : `共 ${sorted.length} 筆`;
         }
 
         function compareByKeys(a, b, keys) {
@@ -1651,12 +1722,15 @@
             const newHidden = new Set();
             hiddenColumns.forEach(idx => newHidden.add(remapColIndex(idx, fromIndex, toIndex)));
 
-            // 重新映射排序鍵與欄寬的欄位 index
+            // 重新映射排序鍵、欄寬與欄位篩選的 index
             sortKeys = sortKeys.map(k => ({ col: remapColIndex(k.col, fromIndex, toIndex), asc: k.asc }));
             const newWidths = new Map();
             colWidths.forEach((w, idx) => newWidths.set(remapColIndex(idx, fromIndex, toIndex), w));
             colWidths = newWidths;
             updateColWidthStyles();
+            const newColFilters = new Map();
+            colFilters.forEach((sel, idx) => newColFilters.set(remapColIndex(idx, fromIndex, toIndex), sel));
+            colFilters = newColFilters;
 
             headers = newHeaders;
             currentData = newData;
@@ -1818,6 +1892,116 @@
             }
             colStatsContent.innerHTML = rows.join('');
         }
+
+        // --- Column Filter ---
+
+        function applyColFilters(rows) {
+            if (colFilters.size === 0) return rows;
+            return rows.filter(row => {
+                for (const [colIdx, selected] of colFilters) {
+                    if (!selected.has(String(row[colIdx] ?? ''))) return false;
+                }
+                return true;
+            });
+        }
+
+        function updateColFilterVisuals() {
+            tableHeader.querySelectorAll('th').forEach((th, i) => {
+                if (i === 0) return;
+                colFilters.has(i - 1) ? th.classList.add('has-filter') : th.classList.remove('has-filter');
+            });
+        }
+
+        function openColFilter(colIndex, btnEl) {
+            colFilterMenuCol = colIndex;
+            colFilterTitle.textContent = `篩選：${headers[colIndex] || ''}`;
+            colFilterSearch.value = '';
+
+            // 統計各值出現次數（基於全部資料）
+            const freq = new Map();
+            currentData.forEach(row => {
+                const v = String(row[colIndex] ?? '');
+                freq.set(v, (freq.get(v) || 0) + 1);
+            });
+            const sortedVals = [...freq.entries()].sort((a, b) => b[1] - a[1]);
+
+            // 目前的篩選選取（若無篩選則全選）
+            const currentSel = colFilters.get(colIndex) || new Set(freq.keys());
+            renderColFilterList(sortedVals, currentSel);
+
+            // 定位（fixed，出現在按鈕下方）
+            const rect = btnEl.getBoundingClientRect();
+            colFilterMenu.style.top = `${rect.bottom + 4}px`;
+            colFilterMenu.style.left = `${Math.min(rect.left, window.innerWidth - 268)}px`;
+            colFilterMenu.classList.remove('hidden');
+            colFilterSearch.focus();
+        }
+
+        function renderColFilterList(vals, selection) {
+            colFilterList.innerHTML = '';
+            vals.forEach(([val, count]) => {
+                const label = document.createElement('label');
+                label.className = 'flex items-center gap-2 px-1 py-1 hover:bg-gray-50 cursor-pointer rounded select-none';
+                const displayVal = val === '' ? '(空值)' : (val.length > 34 ? val.slice(0, 34) + '…' : val);
+                label.innerHTML = `
+                    <input type="checkbox" value="${escapeHtml(val)}" ${selection.has(val) ? 'checked' : ''}
+                        class="h-3.5 w-3.5 text-indigo-600 rounded cursor-pointer flex-none col-filter-item-check">
+                    <span class="text-sm text-gray-700 flex-1 truncate" title="${escapeHtml(val)}">${escapeHtml(displayVal)}</span>
+                    <span class="text-xs text-gray-400 flex-none">${count}</span>
+                `;
+                colFilterList.appendChild(label);
+            });
+            syncSelectAll();
+        }
+
+        function syncSelectAll() {
+            const checks = [...colFilterList.querySelectorAll('.col-filter-item-check')]
+                .filter(c => c.closest('label').style.display !== 'none');
+            const checkedCount = checks.filter(c => c.checked).length;
+            colFilterSelectAll.checked = checkedCount === checks.length && checks.length > 0;
+            colFilterSelectAll.indeterminate = checkedCount > 0 && checkedCount < checks.length;
+        }
+
+        colFilterSearch.addEventListener('input', () => {
+            const term = colFilterSearch.value.toLowerCase();
+            colFilterList.querySelectorAll('label').forEach(label => {
+                const text = label.querySelector('span').textContent.toLowerCase();
+                label.style.display = text.includes(term) ? '' : 'none';
+            });
+            syncSelectAll();
+        });
+
+        colFilterSelectAll.addEventListener('change', () => {
+            colFilterList.querySelectorAll('label').forEach(label => {
+                if (label.style.display !== 'none') {
+                    label.querySelector('.col-filter-item-check').checked = colFilterSelectAll.checked;
+                }
+            });
+        });
+
+        colFilterList.addEventListener('change', syncSelectAll);
+
+        colFilterApply.addEventListener('click', () => {
+            const allVals = new Set(currentData.map(row => String(row[colFilterMenuCol] ?? '')));
+            const selected = new Set(
+                [...colFilterList.querySelectorAll('.col-filter-item-check')]
+                    .filter(c => c.checked).map(c => c.value)
+            );
+            // 若全選 = 清除篩選
+            if (selected.size >= allVals.size) colFilters.delete(colFilterMenuCol);
+            else colFilters.set(colFilterMenuCol, selected);
+
+            colFilterMenu.classList.add('hidden');
+            updateColFilterVisuals();
+            applySortAndRender();
+        });
+
+        colFilterReset.addEventListener('click', () => {
+            colFilters.delete(colFilterMenuCol);
+            colFilterMenu.classList.add('hidden');
+            updateColFilterVisuals();
+            applySortAndRender();
+        });
 
         function escapeHtml(text) {
             if (!text) return '';
