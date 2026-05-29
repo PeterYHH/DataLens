@@ -250,11 +250,14 @@
                 <!-- Search & Column Control Group -->
                 <div class="flex items-center gap-2 w-full lg:w-auto flex-grow lg:flex-grow-0">
                     <!-- Search -->
-                    <div class="relative w-full lg:w-64">
+                    <div class="relative w-full lg:w-80">
                         <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                             <i class="fas fa-search text-gray-400"></i>
                         </div>
-                        <input type="text" id="searchInput" class="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="搜尋內容...">
+                        <input type="text" id="searchInput" class="block w-full pl-10 pr-10 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="搜尋… 點 ⓘ 看進階語法">
+                        <button id="searchHelpBtn" class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-indigo-600 focus:outline-none" title="進階搜尋語法說明">
+                            <i class="fas fa-circle-info"></i>
+                        </button>
                     </div>
 
                     <!-- Column Visibility Button & Dropdown -->
@@ -401,6 +404,18 @@
                 <div class="flex justify-between items-center"><span class="text-gray-700">調整欄位寬度</span><span class="text-xs text-gray-500">拖曳欄位邊緣</span></div>
                 <div class="flex justify-between items-center"><span class="text-gray-700">重新排列欄位</span><span class="text-xs text-gray-500">拖曳欄位標題</span></div>
             </div>
+            <div class="border-t pt-3 mt-4" id="searchSyntaxSection">
+                <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3"><i class="fas fa-search mr-1"></i>進階搜尋語法</h3>
+                <div class="space-y-2 text-xs">
+                    <div class="flex items-baseline gap-2"><code class="kbd">peter</code><span class="text-gray-600">全欄位搜尋（不分大小寫）</span></div>
+                    <div class="flex items-baseline gap-2"><code class="kbd">name:bob</code><span class="text-gray-600">只在 name 欄搜尋</span></div>
+                    <div class="flex items-baseline gap-2"><code class="kbd">age&gt;30</code><span class="text-gray-600">數字比較（&gt; &gt;= &lt; &lt;= = !=）</span></div>
+                    <div class="flex items-baseline gap-2"><code class="kbd">/^A.*/</code><span class="text-gray-600">正規表達式</span></div>
+                    <div class="flex items-baseline gap-2"><code class="kbd">-bob</code><span class="text-gray-600">排除符合的列</span></div>
+                    <div class="flex items-baseline gap-2"><code class="kbd">"new york"</code><span class="text-gray-600">引號保留空白</span></div>
+                    <div class="flex items-baseline gap-2"><code class="kbd">age&gt;=25 city:tokyo</code><span class="text-gray-600">多條件以空格 AND 連接</span></div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -438,6 +453,7 @@
         const delimiterSelect = document.getElementById('delimiterSelect');
         const customDelimiter = document.getElementById('customDelimiter');
         const kbdHelpBtn = document.getElementById('kbdHelpBtn');
+        const searchHelpBtn = document.getElementById('searchHelpBtn');
         const kbdHelpModal = document.getElementById('kbdHelpModal');
         const kbdHelpDialog = document.getElementById('kbdHelpDialog');
         const kbdHelpCloseBtn = document.getElementById('kbdHelpCloseBtn');
@@ -576,6 +592,14 @@
         }
 
         kbdHelpBtn.addEventListener('click', () => toggleKbdHelp(true));
+        searchHelpBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            toggleKbdHelp(true);
+            // 開啟後將搜尋語法區塊滾入視野
+            requestAnimationFrame(() => {
+                document.getElementById('searchSyntaxSection')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+            });
+        });
         kbdHelpCloseBtn.addEventListener('click', () => toggleKbdHelp(false));
         kbdHelpModal.addEventListener('click', (e) => {
             // 點 modal 背景關閉，點對話框本身不關
@@ -1162,14 +1186,179 @@
         }
 
         function filterTable(term) {
-            if (!term) {
+            if (!term || !term.trim()) {
                 renderTableBodyOnly(currentData);
                 recordCount.innerText = `共 ${currentData.length} 筆`;
+                searchInput.classList.remove('border-red-400', 'ring-1', 'ring-red-300');
                 return;
             }
-            const filtered = currentData.filter(row => row.some(cell => String(cell).toLowerCase().includes(term)));
+            let tokens;
+            try {
+                tokens = parseSearchQuery(term);
+            } catch (err) {
+                // 語法錯誤（例如壞掉的 regex）→ 退回原 contains 行為
+                searchInput.classList.add('border-red-400', 'ring-1', 'ring-red-300');
+                const fallback = currentData.filter(row => row.some(cell => String(cell ?? '').toLowerCase().includes(term.toLowerCase())));
+                renderTableBodyOnly(fallback);
+                recordCount.innerText = `搜尋結果：${fallback.length} 筆（語法錯誤，已退回一般搜尋）`;
+                return;
+            }
+            searchInput.classList.remove('border-red-400', 'ring-1', 'ring-red-300');
+            const filtered = currentData.filter(row => tokens.every(t => matchToken(row, t)));
             renderTableBodyOnly(filtered);
             recordCount.innerText = `搜尋結果：${filtered.length} 筆`;
+        }
+
+        // --- 進階搜尋語法 ---
+        // 一般： peter            → 全欄位 contains
+        // 欄位： name:peter       → 該欄 contains
+        // 比較： age>30  age>=30  → 該欄數字比較（<, <=, >, >=, =, !=）
+        // Regex： /pattern/i      → 全欄位 regex
+        // Regex： name:/^B/       → 該欄 regex
+        // 否定： -peter -name:bob → 排除符合
+        // 多條件：以空格 AND；引號 "..." 內保留空白
+
+        function tokenizeSearchQuery(query) {
+            // 將 query 切成 tokens，引號內的空白會保留
+            const tokens = [];
+            let i = 0;
+            const n = query.length;
+            while (i < n) {
+                // skip whitespace
+                while (i < n && /\s/.test(query[i])) i++;
+                if (i >= n) break;
+                let tok = '';
+                while (i < n && !/\s/.test(query[i])) {
+                    if (query[i] === '"') {
+                        i++;
+                        while (i < n && query[i] !== '"') { tok += query[i++]; }
+                        if (i < n) i++; // skip closing quote
+                    } else if (query[i] === '/') {
+                        // regex literal: /pattern/flags
+                        tok += query[i++];
+                        while (i < n && query[i] !== '/') {
+                            if (query[i] === '\\' && i + 1 < n) tok += query[i++];
+                            tok += query[i++];
+                        }
+                        if (i < n) tok += query[i++]; // closing /
+                        // optional flags
+                        while (i < n && /[a-z]/i.test(query[i])) tok += query[i++];
+                    } else {
+                        tok += query[i++];
+                    }
+                }
+                if (tok) tokens.push(tok);
+            }
+            return tokens;
+        }
+
+        function parseSearchQuery(query) {
+            return tokenizeSearchQuery(query).map(parseOneToken);
+        }
+
+        function parseOneToken(raw) {
+            let negate = false;
+            let s = raw;
+            if (s.startsWith('-') && s.length > 1) { negate = true; s = s.slice(1); }
+
+            // 是否帶欄位前綴 col:value
+            let colIdx = -1;
+            const colonIdx = findColonOutsideRegex(s);
+            if (colonIdx > 0) {
+                const colName = s.slice(0, colonIdx);
+                const matchedIdx = findColumnIndex(colName);
+                if (matchedIdx >= 0) {
+                    colIdx = matchedIdx;
+                    s = s.slice(colonIdx + 1);
+                }
+            }
+
+            // 比較運算（必須在指定欄）
+            const cmpMatch = s.match(/^(>=|<=|!=|=|>|<)\s*(.+)$/);
+            if (cmpMatch && colIdx >= 0) {
+                const num = parseFloat(cmpMatch[2]);
+                if (!isNaN(num) && isFinite(num)) {
+                    return { type: 'compare', col: colIdx, op: cmpMatch[1], value: num, negate };
+                }
+            }
+            // 或者整個 token 是 col>30 形式（無 colon 但有比較）
+            if (colIdx === -1) {
+                const m2 = raw.replace(/^-/, '').match(/^([^<>=!:\s]+)(>=|<=|!=|=|>|<)\s*(.+)$/);
+                if (m2) {
+                    const idx = findColumnIndex(m2[1]);
+                    const num = parseFloat(m2[3]);
+                    if (idx >= 0 && !isNaN(num) && isFinite(num)) {
+                        return { type: 'compare', col: idx, op: m2[2], value: num, negate };
+                    }
+                }
+            }
+
+            // Regex literal /pattern/flags
+            const reMatch = s.match(/^\/(.+)\/([a-z]*)$/i);
+            if (reMatch) {
+                // 預設不分大小寫
+                const flags = reMatch[2].includes('i') ? reMatch[2] : reMatch[2] + 'i';
+                const re = new RegExp(reMatch[1], flags); // 若無效會 throw
+                return { type: 'regex', col: colIdx, value: re, negate };
+            }
+
+            // 一般 contains
+            return { type: 'contains', col: colIdx, value: s.toLowerCase(), negate };
+        }
+
+        // 在 `col:value` 中找冒號位置，但忽略 regex literal 內部的冒號
+        function findColonOutsideRegex(s) {
+            let inRe = false;
+            for (let i = 0; i < s.length; i++) {
+                if (s[i] === '/') inRe = !inRe;
+                if (s[i] === ':' && !inRe) return i;
+            }
+            return -1;
+        }
+
+        function findColumnIndex(name) {
+            const lower = name.toLowerCase();
+            // 精確（不分大小寫）優先
+            let idx = headers.findIndex(h => String(h).toLowerCase() === lower);
+            if (idx >= 0) return idx;
+            // 否則前綴比對
+            idx = headers.findIndex(h => String(h).toLowerCase().startsWith(lower));
+            return idx;
+        }
+
+        function matchToken(row, token) {
+            const result = matchTokenInner(row, token);
+            return token.negate ? !result : result;
+        }
+
+        function matchTokenInner(row, token) {
+            if (token.type === 'contains') {
+                if (token.col >= 0) {
+                    return String(row[token.col] ?? '').toLowerCase().includes(token.value);
+                }
+                return row.some(c => String(c ?? '').toLowerCase().includes(token.value));
+            }
+            if (token.type === 'regex') {
+                if (token.col >= 0) {
+                    return token.value.test(String(row[token.col] ?? ''));
+                }
+                return row.some(c => token.value.test(String(c ?? '')));
+            }
+            if (token.type === 'compare') {
+                const raw = row[token.col];
+                if (raw === null || raw === undefined || String(raw).trim() === '') return false;
+                const n = parseFloat(raw);
+                if (isNaN(n) || !isFinite(n)) return false;
+                switch (token.op) {
+                    case '>':  return n > token.value;
+                    case '>=': return n >= token.value;
+                    case '<':  return n < token.value;
+                    case '<=': return n <= token.value;
+                    case '=':  return n === token.value;
+                    case '!=': return n !== token.value;
+                }
+            }
+            return false;
         }
         
         function renderTableBodyOnly(rows) {
