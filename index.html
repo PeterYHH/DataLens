@@ -363,9 +363,33 @@
                     </tbody>
                 </table>
             </div>
+
+            <!-- Pagination Bar -->
+            <div id="paginationBar" class="hidden flex-none border-t border-gray-100 px-4 py-2 bg-white flex items-center justify-between text-sm select-none">
+                <div class="flex items-center gap-2 text-gray-500">
+                    <span>每頁</span>
+                    <select id="pageSizeSelect" class="border border-gray-300 rounded px-2 py-1 text-sm focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 bg-white cursor-pointer">
+                        <option value="50">50</option>
+                        <option value="100" selected>100</option>
+                        <option value="200">200</option>
+                        <option value="500">500</option>
+                        <option value="all">全部</option>
+                    </select>
+                    <span>筆</span>
+                </div>
+                <div id="pageNavControls" class="flex items-center gap-3 text-gray-700">
+                    <button id="prevPageBtn" class="px-2 py-1 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors" title="上一頁">
+                        <i class="fas fa-chevron-left text-xs"></i>
+                    </button>
+                    <span>第 <span id="pageNumDisplay" class="font-semibold text-indigo-600">1</span> / <span id="totalPagesDisplay" class="font-semibold">1</span> 頁</span>
+                    <button id="nextPageBtn" class="px-2 py-1 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors" title="下一頁">
+                        <i class="fas fa-chevron-right text-xs"></i>
+                    </button>
+                </div>
+            </div>
         </div>
     </main>
-    
+
     <!-- Toast Notification -->
     <div id="toast" class="fixed bottom-10 left-1/2 transform -translate-x-1/2 bg-gray-800/90 backdrop-blur-sm text-white px-4 py-2 rounded-full shadow-lg transition-all duration-300 opacity-0 pointer-events-none z-50 text-sm flex items-center">
         <i class="fas fa-check-circle text-green-400 mr-2"></i>
@@ -486,9 +510,19 @@
         const colStatsContent = document.getElementById('colStatsContent');
         const colStatsCloseBtn = document.getElementById('colStatsCloseBtn');
         const dupHighlightBtn = document.getElementById('dupHighlightBtn');
+        const paginationBar = document.getElementById('paginationBar');
+        const pageSizeSelect = document.getElementById('pageSizeSelect');
+        const prevPageBtn = document.getElementById('prevPageBtn');
+        const nextPageBtn = document.getElementById('nextPageBtn');
+        const pageNumDisplay = document.getElementById('pageNumDisplay');
+        const totalPagesDisplay = document.getElementById('totalPagesDisplay');
+        const pageNavControls = document.getElementById('pageNavControls');
 
         let currentData = [];
         let dupHighlightEnabled = false;
+        let displayedRows = [];
+        let currentPage = 1;
+        let pageSize = 100;
         let headers = [];
         let sortKeys = []; // 多欄排序：[{col, asc}, ...]，順序即為排序優先級
         let colWidths = new Map(); // 欄寬持久化：colIndex -> width(px)
@@ -538,6 +572,21 @@
                 });
                 showToast('已關閉重複值標記');
             }
+        });
+
+        pageSizeSelect.addEventListener('change', () => {
+            pageSize = pageSizeSelect.value === 'all' ? Infinity : parseInt(pageSizeSelect.value);
+            currentPage = 1;
+            renderTableBodyOnly(displayedRows, true);
+        });
+
+        prevPageBtn.addEventListener('click', () => {
+            if (currentPage > 1) { currentPage--; renderTableBodyOnly(displayedRows, true); }
+        });
+
+        nextPageBtn.addEventListener('click', () => {
+            const totalPages = pageSize === Infinity ? 1 : Math.ceil(displayedRows.length / pageSize);
+            if (currentPage < totalPages) { currentPage++; renderTableBodyOnly(displayedRows, true); }
         });
 
         dropZone.addEventListener('click', () => fileInput.click());
@@ -804,8 +853,11 @@
             dataTable.classList.add('hidden');
             toolbar.classList.add('hidden');
             emptyState.style.display = 'flex';
-            // 清除重複值標記（保留開關狀態）
             tableBody.querySelectorAll('td.dup-cell').forEach(td => td.classList.remove('dup-cell'));
+            displayedRows = [];
+            currentPage = 1;
+            paginationBar.classList.add('hidden');
+            pageNavControls.classList.add('hidden');
         }
 
         function copyToClipboard(text) {
@@ -1181,33 +1233,7 @@
                 }
             }
 
-            tableBody.innerHTML = '';
-            const fragment = document.createDocumentFragment();
-
-            rows.forEach((row, rowIndex) => {
-                const tr = document.createElement('tr');
-                tr.className = 'hover:bg-indigo-50 transition-colors duration-150';
-                
-                const tdNo = document.createElement('td');
-                tdNo.className = 'px-3 py-3 whitespace-nowrap text-xs text-gray-500 font-mono text-center border-b border-gray-100 sticky left-0 z-20 sticky-left-shadow bg-gray-50 cursor-pointer hover:bg-indigo-100 hover:text-indigo-700'; 
-                tdNo.textContent = rowIndex + 1;
-                tdNo.title = "點擊複製行號";
-                tr.appendChild(tdNo);
-
-                for (let i = 0; i < headers.length; i++) {
-                    const td = document.createElement('td');
-                    // Added class col-idx-${i} for visibility control
-                    td.className = `px-4 py-3 whitespace-nowrap text-sm text-gray-700 border-b border-gray-100 cursor-pointer hover:bg-indigo-100 hover:text-indigo-900 transition-colors max-w-xs truncate col-idx-${i}`;
-                    
-                    let cellValue = row[i];
-                    td.textContent = (cellValue === undefined || cellValue === null) ? '' : cellValue;
-                    td.title = td.textContent;
-                    tr.appendChild(td);
-                }
-                fragment.appendChild(tr);
-            });
-            tableBody.appendChild(fragment);
-            markTruncatedCells();
+            renderTableBodyOnly(rows);
         }
 
         // 在 td 被截斷時更新 title，提示可點擊展開；同時套用重複值標記
@@ -1473,20 +1499,28 @@
             return false;
         }
         
-        function renderTableBodyOnly(rows) {
+        function renderTableBodyOnly(rows, keepPage = false) {
+            displayedRows = rows;
+            if (!keepPage) currentPage = 1;
+
+            const total = rows.length;
+            const effSize = (pageSize === Infinity) ? total : pageSize;
+            const rowOffset = (currentPage - 1) * effSize;
+            const pageRows = rows.slice(rowOffset, rowOffset + effSize);
+
             tableBody.innerHTML = '';
             const fragment = document.createDocumentFragment();
-            rows.forEach((row, rowIndex) => {
+            pageRows.forEach((row, rowIndex) => {
                 const tr = document.createElement('tr');
                 tr.className = 'hover:bg-indigo-50 transition-colors duration-150';
                 const tdNo = document.createElement('td');
-                tdNo.className = 'px-3 py-3 whitespace-nowrap text-xs text-gray-500 font-mono text-center border-b border-gray-100 sticky left-0 z-20 sticky-left-shadow bg-gray-50 cursor-pointer hover:bg-indigo-100'; 
-                tdNo.textContent = rowIndex + 1;
+                tdNo.className = 'px-3 py-3 whitespace-nowrap text-xs text-gray-500 font-mono text-center border-b border-gray-100 sticky left-0 z-20 sticky-left-shadow bg-gray-50 cursor-pointer hover:bg-indigo-100 hover:text-indigo-700';
+                tdNo.textContent = rowOffset + rowIndex + 1;
+                tdNo.title = '點擊複製行號';
                 tr.appendChild(tdNo);
                 for (let i = 0; i < headers.length; i++) {
                     const td = document.createElement('td');
-                    // Added col-idx-${i} here too
-                    td.className = `px-4 py-3 whitespace-nowrap text-sm text-gray-700 border-b border-gray-100 cursor-pointer hover:bg-indigo-100 max-w-xs truncate col-idx-${i}`;
+                    td.className = `px-4 py-3 whitespace-nowrap text-sm text-gray-700 border-b border-gray-100 cursor-pointer hover:bg-indigo-100 hover:text-indigo-900 transition-colors max-w-xs truncate col-idx-${i}`;
                     let val = row[i];
                     td.textContent = (val === undefined || val === null) ? '' : val;
                     td.title = td.textContent;
@@ -1495,7 +1529,25 @@
                 fragment.appendChild(tr);
             });
             tableBody.appendChild(fragment);
+            updatePaginationBar(total);
             markTruncatedCells();
+        }
+
+        function updatePaginationBar(total) {
+            // 分頁列永遠顯示（有資料時），只有翻頁導覽依需要顯示
+            paginationBar.classList.remove('hidden');
+            const effSize = (pageSize === Infinity) ? total : pageSize;
+            const totalPages = effSize > 0 ? Math.ceil(total / effSize) : 1;
+
+            if (pageSize === Infinity || total <= effSize) {
+                pageNavControls.classList.add('hidden');
+                return;
+            }
+            pageNavControls.classList.remove('hidden');
+            pageNumDisplay.textContent = currentPage;
+            totalPagesDisplay.textContent = totalPages;
+            prevPageBtn.disabled = currentPage <= 1;
+            nextPageBtn.disabled = currentPage >= totalPages;
         }
 
         function sortTable(colIndex, shiftKey = false) {
