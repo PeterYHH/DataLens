@@ -412,8 +412,9 @@
                     <div class="flex items-baseline gap-2"><code class="kbd">age&gt;30</code><span class="text-gray-600">數字比較（&gt; &gt;= &lt; &lt;= = !=）</span></div>
                     <div class="flex items-baseline gap-2"><code class="kbd">/^A.*/</code><span class="text-gray-600">正規表達式</span></div>
                     <div class="flex items-baseline gap-2"><code class="kbd">-bob</code><span class="text-gray-600">排除符合的列</span></div>
-                    <div class="flex items-baseline gap-2"><code class="kbd">"new york"</code><span class="text-gray-600">引號保留空白</span></div>
-                    <div class="flex items-baseline gap-2"><code class="kbd">age&gt;=25 city:tokyo</code><span class="text-gray-600">多條件以空格 AND 連接</span></div>
+                    <div class="flex items-baseline gap-2"><code class="kbd">"new york"</code><span class="text-gray-600">引號保留空白（含字面 OR）</span></div>
+                    <div class="flex items-baseline gap-2"><code class="kbd">age&gt;=25 city:tokyo</code><span class="text-gray-600">空格 = AND（兩條件都要符合）</span></div>
+                    <div class="flex items-baseline gap-2"><code class="kbd">tokyo OR seoul</code><span class="text-gray-600">大寫 OR = 任一符合即可（小寫 or 視為文字）</span></div>
                 </div>
             </div>
         </div>
@@ -526,7 +527,7 @@
             else alert('請先上傳檔案或貼上內容');
         });
 
-        searchInput.addEventListener('input', (e) => filterTable(e.target.value.toLowerCase()));
+        searchInput.addEventListener('input', (e) => filterTable(e.target.value));
         
         tableSelector.addEventListener('change', (e) => {
             const key = e.target.value;
@@ -1192,9 +1193,9 @@
                 searchInput.classList.remove('border-red-400', 'ring-1', 'ring-red-300');
                 return;
             }
-            let tokens;
+            let groups;
             try {
-                tokens = parseSearchQuery(term);
+                groups = parseSearchQuery(term);
             } catch (err) {
                 // 語法錯誤（例如壞掉的 regex）→ 退回原 contains 行為
                 searchInput.classList.add('border-red-400', 'ring-1', 'ring-red-300');
@@ -1204,7 +1205,16 @@
                 return;
             }
             searchInput.classList.remove('border-red-400', 'ring-1', 'ring-red-300');
-            const filtered = currentData.filter(row => tokens.every(t => matchToken(row, t)));
+            // 無有效 group（例如只輸入了 "OR"）→ 顯示全部
+            if (groups.length === 0) {
+                renderTableBodyOnly(currentData);
+                recordCount.innerText = `共 ${currentData.length} 筆`;
+                return;
+            }
+            // groups 之間 OR、group 內 AND
+            const filtered = currentData.filter(row =>
+                groups.some(group => group.every(t => matchToken(row, t)))
+            );
             renderTableBodyOnly(filtered);
             recordCount.innerText = `搜尋結果：${filtered.length} 筆`;
         }
@@ -1219,17 +1229,18 @@
         // 多條件：以空格 AND；引號 "..." 內保留空白
 
         function tokenizeSearchQuery(query) {
-            // 將 query 切成 tokens，引號內的空白會保留
+            // 將 query 切成 raw tokens，記錄該 token 是否來自引號（用以判斷裸 OR）
             const tokens = [];
             let i = 0;
             const n = query.length;
             while (i < n) {
-                // skip whitespace
                 while (i < n && /\s/.test(query[i])) i++;
                 if (i >= n) break;
                 let tok = '';
+                let quoted = false;
                 while (i < n && !/\s/.test(query[i])) {
                     if (query[i] === '"') {
+                        quoted = true;
                         i++;
                         while (i < n && query[i] !== '"') { tok += query[i++]; }
                         if (i < n) i++; // skip closing quote
@@ -1241,19 +1252,36 @@
                             tok += query[i++];
                         }
                         if (i < n) tok += query[i++]; // closing /
-                        // optional flags
                         while (i < n && /[a-z]/i.test(query[i])) tok += query[i++];
                     } else {
                         tok += query[i++];
                     }
                 }
-                if (tok) tokens.push(tok);
+                if (tok) tokens.push({ text: tok, quoted });
             }
             return tokens;
         }
 
+        // 解析為 OR groups。groups 之間 OR，每個 group 內所有 token AND。
+        // 例：a b OR c d  →  [[a, b], [c, d]]
+        // 只有「裸寫的全大寫 OR」會被視為運算符；引號內的 OR 為字面。
         function parseSearchQuery(query) {
-            return tokenizeSearchQuery(query).map(parseOneToken);
+            const raw = tokenizeSearchQuery(query);
+            const groups = [];
+            let current = [];
+            for (const t of raw) {
+                if (t.text === 'OR' && !t.quoted) {
+                    if (current.length > 0) {
+                        groups.push(current);
+                        current = [];
+                    }
+                    // 空 group（OR 在開頭或連續）→ 跳過
+                } else {
+                    current.push(parseOneToken(t.text));
+                }
+            }
+            if (current.length > 0) groups.push(current);
+            return groups;
         }
 
         function parseOneToken(raw) {
@@ -1419,7 +1447,7 @@
             }
 
             renderTableBodyOnly(sorted);
-            if (searchInput.value) filterTable(searchInput.value.toLowerCase());
+            if (searchInput.value) filterTable(searchInput.value);
         }
 
         function compareByKeys(a, b, keys) {
@@ -1499,7 +1527,7 @@
             hiddenColumns = newHidden;
 
             renderTable(headers, currentData);
-            if (searchInput.value) filterTable(searchInput.value.toLowerCase());
+            if (searchInput.value) filterTable(searchInput.value);
         }
 
         // --- Column Resizing ---
