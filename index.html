@@ -190,6 +190,31 @@
         .dup-cell:hover {
             background-color: #fef08a !important; /* yellow-200 */
         }
+
+        /* 行標記 */
+        tr.mark-red td                { background-color: #fee2e2 !important; }
+        tr.mark-red td:hover          { background-color: #fecaca !important; }
+        tr.mark-red td.row-no-cell    { background-color: #fca5a5 !important; color: #991b1b !important; }
+        tr.mark-red td.row-no-cell:hover { background-color: #f87171 !important; }
+
+        tr.mark-yellow td             { background-color: #fef9c3 !important; }
+        tr.mark-yellow td:hover       { background-color: #fef08a !important; }
+        tr.mark-yellow td.row-no-cell { background-color: #fde047 !important; color: #713f12 !important; }
+        tr.mark-yellow td.row-no-cell:hover { background-color: #facc15 !important; }
+
+        tr.mark-green td              { background-color: #dcfce7 !important; }
+        tr.mark-green td:hover        { background-color: #bbf7d0 !important; }
+        tr.mark-green td.row-no-cell  { background-color: #86efac !important; color: #14532d !important; }
+        tr.mark-green td.row-no-cell:hover { background-color: #4ade80 !important; }
+
+        tr.mark-blue td               { background-color: #dbeafe !important; }
+        tr.mark-blue td:hover         { background-color: #bfdbfe !important; }
+        tr.mark-blue td.row-no-cell   { background-color: #93c5fd !important; color: #1e3a8a !important; }
+        tr.mark-blue td.row-no-cell:hover { background-color: #60a5fa !important; }
+
+        .row-mark-color-btn { transition: transform 0.12s, box-shadow 0.12s; }
+        .row-mark-color-btn:hover { transform: scale(1.2); }
+        .row-mark-color-btn.is-active { box-shadow: 0 0 0 3px white, 0 0 0 5px #374151; }
     </style>
     <!-- 動態欄位隱藏樣式 -->
     <style id="colVisStyles"></style>
@@ -556,6 +581,20 @@
         </div>
     </div>
 
+    <!-- Row Mark Color Picker -->
+    <div id="rowMarkMenu" class="hidden fixed bg-white border border-gray-200 rounded-xl shadow-xl z-[110] p-3" style="min-width:160px;">
+        <div class="text-xs font-semibold text-gray-500 mb-2.5">標記顏色</div>
+        <div class="flex items-center gap-2.5 mb-2.5">
+            <button data-color="red"    class="row-mark-color-btn w-7 h-7 rounded-full bg-red-400 hover:bg-red-500"    title="紅色"></button>
+            <button data-color="yellow" class="row-mark-color-btn w-7 h-7 rounded-full bg-yellow-400 hover:bg-yellow-500" title="黃色"></button>
+            <button data-color="green"  class="row-mark-color-btn w-7 h-7 rounded-full bg-green-400 hover:bg-green-500"  title="綠色"></button>
+            <button data-color="blue"   class="row-mark-color-btn w-7 h-7 rounded-full bg-blue-400 hover:bg-blue-500"   title="藍色"></button>
+            <button data-color=""       class="row-mark-color-btn w-7 h-7 rounded-full bg-gray-100 border border-dashed border-gray-400 hover:bg-gray-200 flex items-center justify-center" title="清除標記">
+                <i class="fas fa-times text-gray-400 text-xs"></i>
+            </button>
+        </div>
+    </div>
+
     <!-- Column Filter Dropdown -->
     <div id="colFilterMenu" class="hidden fixed bg-white border border-gray-200 rounded-lg shadow-xl z-[100] w-64">
         <div class="p-2.5 border-b border-gray-100">
@@ -642,6 +681,7 @@
         const topTotalPagesDisplay = document.getElementById('topTotalPagesDisplay');
         const topPageSizeSelect = document.getElementById('topPageSizeSelect');
         const topPageNavControls = document.getElementById('topPageNavControls');
+        const rowMarkMenu = document.getElementById('rowMarkMenu');
         const colFilterMenu = document.getElementById('colFilterMenu');
         const colFilterTitle = document.getElementById('colFilterTitle');
         const colFilterSearch = document.getElementById('colFilterSearch');
@@ -651,6 +691,8 @@
         const colFilterApply = document.getElementById('colFilterApply');
 
         let currentData = [];
+        let rowMarks = new Map(); // origRowIndex → 'red' | 'yellow' | 'green' | 'blue'
+        let rowMarkPickerOrigIdx = -1;
         let dupHighlightEnabled = false;
         let displayedRows = [];
         let currentPage = 1;
@@ -680,6 +722,7 @@
 
             dupHighlightEnabled = sessionStorage.getItem('datalens_dup_highlight') === '1';
             updateDupHighlightBtn();
+            loadRowMarks();
 
             const stored = sessionStorage.getItem(STORAGE_KEY);
             if (stored) {
@@ -689,13 +732,16 @@
             }
         });
 
-        // Close ColVis / ColFilter menu when clicking outside
+        // Close ColVis / ColFilter / RowMark menu when clicking outside
         document.addEventListener('click', (e) => {
             if (!colVisBtn.contains(e.target) && !colVisMenu.contains(e.target)) {
                 colVisMenu.classList.add('hidden');
             }
             if (!colFilterMenu.contains(e.target) && !e.target.classList.contains('col-filter-btn')) {
                 colFilterMenu.classList.add('hidden');
+            }
+            if (!rowMarkMenu.contains(e.target) && !e.target.closest('.row-no-cell')) {
+                rowMarkMenu.classList.add('hidden');
             }
         });
 
@@ -805,9 +851,17 @@
         tableBody.addEventListener('click', (e) => {
             const td = e.target.closest('td');
             if (!td) return;
+
+            // 行號欄：開啟行標記顏色選擇器
+            if (td.classList.contains('row-no-cell')) {
+                const origIdx = parseInt(td.dataset.origIdx);
+                if (!isNaN(origIdx) && origIdx >= 0) openRowMarkPicker(e, origIdx);
+                return;
+            }
+
+            // 資料欄：被截斷或太長 → 開詳細視窗；否則直接複製
             const text = td.innerText;
             if (!text) return;
-            // 被截斷或文字太長/含換行 → 開詳細視窗；否則直接複製
             const isTruncated = td.scrollWidth > td.clientWidth + 1;
             const isLongOrMultiline = text.length > 30 || text.includes('\n');
             if (isTruncated || isLongOrMultiline) {
@@ -880,7 +934,7 @@
             // Esc：依優先序關閉任何開啟的 modal、欄位選單，或清除搜尋
             if (e.key === 'Escape') {
                 // 依序檢查所有 modal
-                const modals = [cellDetailModal, colStatsModal, kbdHelpModal, colFilterMenu];
+                const modals = [cellDetailModal, colStatsModal, kbdHelpModal, colFilterMenu, rowMarkMenu];
                 for (const m of modals) {
                     if (!m.classList.contains('hidden')) {
                         m.classList.add('hidden');
@@ -1045,6 +1099,9 @@
             topPageNavControls.style.display = 'none';
             colFilters.clear();
             colFilterMenu.classList.add('hidden');
+            rowMarks.clear();
+            rowMarkMenu.classList.add('hidden');
+            sessionStorage.removeItem('datalens_row_marks');
         }
 
         function copyToClipboard(text) {
@@ -1185,6 +1242,9 @@
             updateColVisStyles();
             colFilters.clear();
             colFilterMenu.classList.add('hidden');
+            rowMarks.clear();
+            rowMarkMenu.classList.add('hidden');
+            sessionStorage.removeItem('datalens_row_marks');
 
             try {
                 const headerSet = new Set();
@@ -1224,6 +1284,9 @@
             updateColVisStyles();
             colFilters.clear();
             colFilterMenu.classList.add('hidden');
+            rowMarks.clear();
+            rowMarkMenu.classList.add('hidden');
+            sessionStorage.removeItem('datalens_row_marks');
 
             try {
                 const delimiter = getDelimiter();
@@ -1705,15 +1768,23 @@
             const rowOffset = (currentPage - 1) * effSize;
             const pageRows = rows.slice(rowOffset, rowOffset + effSize);
 
+            // 建立 row reference → originalRowIndex 映射，用於行標記
+            const rowIndexMap = new Map(currentData.map((r, i) => [r, i]));
+
             tableBody.innerHTML = '';
             const fragment = document.createDocumentFragment();
             pageRows.forEach((row, rowIndex) => {
+                const origIdx = rowIndexMap.get(row) ?? -1;
+                const markColor = origIdx >= 0 ? rowMarks.get(origIdx) : null;
+
                 const tr = document.createElement('tr');
-                tr.className = 'hover:bg-indigo-50 transition-colors duration-150';
+                tr.className = 'hover:bg-indigo-50 transition-colors duration-150' + (markColor ? ` mark-${markColor}` : '');
+
                 const tdNo = document.createElement('td');
-                tdNo.className = 'px-3 py-3 whitespace-nowrap text-xs text-gray-500 font-mono text-center border-b border-gray-100 sticky left-0 z-20 sticky-left-shadow bg-gray-50 cursor-pointer hover:bg-indigo-100 hover:text-indigo-700';
+                tdNo.className = 'px-3 py-3 whitespace-nowrap text-xs text-gray-500 font-mono text-center border-b border-gray-100 sticky left-0 z-20 sticky-left-shadow bg-gray-50 cursor-pointer hover:bg-indigo-100 hover:text-indigo-700 row-no-cell';
                 tdNo.textContent = rowOffset + rowIndex + 1;
-                tdNo.title = '點擊複製行號';
+                tdNo.title = '點擊標記此行顏色';
+                tdNo.dataset.origIdx = origIdx;
                 tr.appendChild(tdNo);
                 for (let i = 0; i < headers.length; i++) {
                     const td = document.createElement('td');
@@ -2144,6 +2215,60 @@
             updateColFilterVisuals();
             applySortAndRender();
         });
+
+        // --- 行標記 ---
+
+        function openRowMarkPicker(e, origIdx) {
+            rowMarkPickerOrigIdx = origIdx;
+            const currentColor = rowMarks.get(origIdx) || '';
+            rowMarkMenu.querySelectorAll('[data-color]').forEach(btn => {
+                btn.classList.toggle('is-active', btn.dataset.color === currentColor && currentColor !== '');
+            });
+
+            const tdEl = e.target.closest('td');
+            const rect = tdEl.getBoundingClientRect();
+            const menuW = 168;
+            const menuH = 80;
+            let left = rect.right + 6;
+            let top = rect.top;
+            if (left + menuW > window.innerWidth - 8) left = rect.left - menuW - 6;
+            if (top + menuH > window.innerHeight - 8) top = window.innerHeight - menuH - 8;
+            rowMarkMenu.style.left = `${Math.max(4, left)}px`;
+            rowMarkMenu.style.top = `${Math.max(4, top)}px`;
+            rowMarkMenu.classList.remove('hidden');
+            e.stopPropagation();
+        }
+
+        rowMarkMenu.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-color]');
+            if (!btn || rowMarkPickerOrigIdx < 0) return;
+            const color = btn.dataset.color;
+            if (color) rowMarks.set(rowMarkPickerOrigIdx, color);
+            else rowMarks.delete(rowMarkPickerOrigIdx);
+            saveRowMarks();
+            rowMarkMenu.classList.add('hidden');
+
+            // 直接更新 DOM，不需完整重繪
+            const tdNo = tableBody.querySelector(`td[data-orig-idx="${rowMarkPickerOrigIdx}"]`);
+            if (tdNo) {
+                const tr = tdNo.parentElement;
+                tr.className = tr.className.replace(/\s*mark-\w+/g, '').trimEnd();
+                if (color) tr.classList.add(`mark-${color}`);
+            }
+        });
+
+        function saveRowMarks() {
+            try {
+                sessionStorage.setItem('datalens_row_marks', JSON.stringify([...rowMarks.entries()]));
+            } catch (e) {}
+        }
+
+        function loadRowMarks() {
+            try {
+                const stored = sessionStorage.getItem('datalens_row_marks');
+                if (stored) rowMarks = new Map(JSON.parse(stored));
+            } catch (e) { rowMarks = new Map(); }
+        }
 
         function escapeHtml(text) {
             if (!text) return '';
