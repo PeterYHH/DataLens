@@ -202,9 +202,64 @@
     <header class="bg-white shadow-sm z-20 flex-none">
         <div class="mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center w-full">
             <div class="flex items-center space-x-3">
-                <div class="bg-indigo-600 text-white p-2 rounded-lg shadow-md">
-                    <i class="fas fa-table fa-lg"></i>
-                </div>
+                <svg width="38" height="38" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" class="flex-none drop-shadow-md">
+                    <defs>
+                        <linearGradient id="dl-grad" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
+                            <stop offset="0%" stop-color="#818cf8"/>
+                            <stop offset="100%" stop-color="#3730a3"/>
+                        </linearGradient>
+                        <linearGradient id="dl-lens" x1="10" y1="7" x2="24" y2="27" gradientUnits="userSpaceOnUse">
+                            <stop offset="0%" stop-color="#ffffff"/>
+                            <stop offset="100%" stop-color="#dde4ff"/>
+                        </linearGradient>
+                        <clipPath id="dl-clip">
+                            <circle cx="17" cy="17" r="10.5"/>
+                        </clipPath>
+                    </defs>
+                    <!-- Background -->
+                    <rect width="40" height="40" rx="9" fill="url(#dl-grad)"/>
+                    <!-- Outer ring -->
+                    <circle cx="17" cy="17" r="12" fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="0.8"/>
+                    <!-- Lens -->
+                    <circle cx="17" cy="17" r="10.5" fill="url(#dl-lens)"/>
+                    <!-- Table inside lens -->
+                    <g clip-path="url(#dl-clip)">
+                        <!-- Header row -->
+                        <rect x="6.5" y="9" width="21" height="4.8" fill="#4338ca"/>
+                        <rect x="8" y="10.3" width="3.8" height="1.8" rx="0.5" fill="white" opacity="0.88"/>
+                        <rect x="14" y="10.3" width="3" height="1.8" rx="0.5" fill="white" opacity="0.88"/>
+                        <rect x="19.5" y="10.3" width="3.5" height="1.8" rx="0.5" fill="white" opacity="0.88"/>
+                        <!-- Vertical dividers -->
+                        <line x1="13.5" y1="9" x2="13.5" y2="27" stroke="#a5b4fc" stroke-width="0.4" opacity="0.8"/>
+                        <line x1="19" y1="9" x2="19" y2="27" stroke="#a5b4fc" stroke-width="0.4" opacity="0.8"/>
+                        <!-- Row 1 -->
+                        <rect x="6.5" y="14.2" width="21" height="3.8" fill="#eef2ff"/>
+                        <rect x="8" y="15.1" width="3.3" height="1.6" rx="0.4" fill="#4f46e5" opacity="0.55"/>
+                        <rect x="14" y="15.1" width="2.5" height="1.6" rx="0.4" fill="#4f46e5" opacity="0.45"/>
+                        <rect x="19.5" y="15.1" width="3.2" height="1.6" rx="0.4" fill="#4f46e5" opacity="0.6"/>
+                        <!-- Row 2 -->
+                        <rect x="6.5" y="18.4" width="21" height="3.8" fill="white"/>
+                        <rect x="8" y="19.3" width="4" height="1.6" rx="0.4" fill="#4f46e5" opacity="0.45"/>
+                        <rect x="14" y="19.3" width="3" height="1.6" rx="0.4" fill="#4f46e5" opacity="0.55"/>
+                        <rect x="19.5" y="19.3" width="2.5" height="1.6" rx="0.4" fill="#4f46e5" opacity="0.4"/>
+                        <!-- Row 3 -->
+                        <rect x="6.5" y="22.6" width="21" height="5" fill="#eef2ff"/>
+                        <rect x="8" y="23.5" width="2.8" height="1.6" rx="0.4" fill="#4f46e5" opacity="0.6"/>
+                        <rect x="14" y="23.5" width="3.5" height="1.6" rx="0.4" fill="#4f46e5" opacity="0.5"/>
+                        <rect x="19.5" y="23.5" width="3.8" height="1.6" rx="0.4" fill="#4f46e5" opacity="0.6"/>
+                        <!-- Horizontal row dividers -->
+                        <line x1="6.5" y1="14.2" x2="27.5" y2="14.2" stroke="#c7d2fe" stroke-width="0.4"/>
+                        <line x1="6.5" y1="18.4" x2="27.5" y2="18.4" stroke="#c7d2fe" stroke-width="0.4"/>
+                        <line x1="6.5" y1="22.6" x2="27.5" y2="22.6" stroke="#c7d2fe" stroke-width="0.4"/>
+                    </g>
+                    <!-- Lens border -->
+                    <circle cx="17" cy="17" r="10.5" fill="none" stroke="rgba(255,255,255,0.65)" stroke-width="1.1"/>
+                    <!-- Glare highlight -->
+                    <ellipse cx="13.5" cy="13" rx="3" ry="1.7" fill="white" opacity="0.22" transform="rotate(-35 13.5 13)"/>
+                    <!-- Handle -->
+                    <line x1="25" y1="25" x2="33" y2="33" stroke="#818cf8" stroke-width="3.5" stroke-linecap="round"/>
+                    <line x1="25" y1="25" x2="33" y2="33" stroke="rgba(255,255,255,0.28)" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
                 <h1 class="text-xl font-bold text-gray-900 tracking-tight">DataLens <span class="hidden sm:inline text-sm font-normal text-gray-500 ml-2">CSV/JSON 轉表格工具</span></h1>
             </div>
             <div class="text-xs sm:text-sm text-gray-500 flex items-center">
@@ -615,6 +670,14 @@
         // --- Event Listeners ---
 
         window.addEventListener('DOMContentLoaded', () => {
+            // 動態設定 favicon（用 encodeURIComponent 避免手動編碼 # 等字元）
+            const faviconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><defs><linearGradient id="f-bg" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#818cf8"/><stop offset="100%" stop-color="#3730a3"/></linearGradient><linearGradient id="f-lens" x1="7" y1="5" x2="19" y2="21" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#dde4ff"/></linearGradient><clipPath id="f-clip"><circle cx="13" cy="13" r="8.5"/></clipPath></defs><rect width="32" height="32" rx="7" fill="url(#f-bg)"/><circle cx="13" cy="13" r="8.5" fill="url(#f-lens)"/><g clip-path="url(#f-clip)"><rect x="4.5" y="7.5" width="17" height="3.8" fill="#4338ca"/><rect x="4.5" y="11.7" width="17" height="3.3" fill="#eef2ff"/><rect x="4.5" y="15.3" width="17" height="3.3" fill="white"/><rect x="4.5" y="18.9" width="17" height="3" fill="#eef2ff"/><line x1="10" y1="7.5" x2="10" y2="22" stroke="#a5b4fc" stroke-width="0.5"/><line x1="15.5" y1="7.5" x2="15.5" y2="22" stroke="#a5b4fc" stroke-width="0.5"/></g><circle cx="13" cy="13" r="8.5" fill="none" stroke="rgba(255,255,255,0.65)" stroke-width="1"/><line x1="19.5" y1="19.5" x2="27" y2="27" stroke="#818cf8" stroke-width="3" stroke-linecap="round"/><line x1="19.5" y1="19.5" x2="27" y2="27" stroke="rgba(255,255,255,0.3)" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+            const faviconLink = document.createElement('link');
+            faviconLink.rel = 'icon';
+            faviconLink.type = 'image/svg+xml';
+            faviconLink.href = 'data:image/svg+xml,' + encodeURIComponent(faviconSvg);
+            document.head.appendChild(faviconLink);
+
             dupHighlightEnabled = sessionStorage.getItem('datalens_dup_highlight') === '1';
             updateDupHighlightBtn();
 
