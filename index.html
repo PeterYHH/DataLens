@@ -158,6 +158,14 @@
 
         .toast-enter { transform: translate(-50%, 1rem); opacity: 0; }
         .toast-enter-active { transform: translate(-50%, 0); opacity: 1; }
+
+        /* 重複值標記 */
+        .dup-cell {
+            background-color: #fef9c3 !important; /* yellow-100 */
+        }
+        .dup-cell:hover {
+            background-color: #fef08a !important; /* yellow-200 */
+        }
     </style>
     <!-- 動態欄位隱藏樣式 -->
     <style id="colVisStyles"></style>
@@ -259,6 +267,11 @@
                             <i class="fas fa-circle-info"></i>
                         </button>
                     </div>
+
+                    <!-- Duplicate Highlight Toggle -->
+                    <button id="dupHighlightBtn" class="bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-3 py-2 rounded-md text-sm font-medium shadow-sm flex items-center h-[38px]" title="標記重複值（同欄中相同的值）">
+                        <i class="fas fa-clone mr-1"></i> <span class="hidden sm:inline">重複值</span>
+                    </button>
 
                     <!-- Column Visibility Button & Dropdown -->
                     <div class="relative">
@@ -472,8 +485,10 @@
         const colStatsTypeTag = document.getElementById('colStatsTypeTag');
         const colStatsContent = document.getElementById('colStatsContent');
         const colStatsCloseBtn = document.getElementById('colStatsCloseBtn');
+        const dupHighlightBtn = document.getElementById('dupHighlightBtn');
 
         let currentData = [];
+        let dupHighlightEnabled = false;
         let headers = [];
         let sortKeys = []; // 多欄排序：[{col, asc}, ...]，順序即為排序優先級
         let colWidths = new Map(); // 欄寬持久化：colIndex -> width(px)
@@ -487,6 +502,9 @@
         // --- Event Listeners ---
 
         window.addEventListener('DOMContentLoaded', () => {
+            dupHighlightEnabled = sessionStorage.getItem('datalens_dup_highlight') === '1';
+            updateDupHighlightBtn();
+
             const stored = sessionStorage.getItem(STORAGE_KEY);
             if (stored) {
                 pasteInput.value = stored;
@@ -504,6 +522,22 @@
 
         colVisBtn.addEventListener('click', () => {
             colVisMenu.classList.toggle('hidden');
+        });
+
+        dupHighlightBtn.addEventListener('click', () => {
+            dupHighlightEnabled = !dupHighlightEnabled;
+            sessionStorage.setItem('datalens_dup_highlight', dupHighlightEnabled ? '1' : '0');
+            updateDupHighlightBtn();
+            if (dupHighlightEnabled) {
+                applyDupHighlightDOM();
+                showToast('已開啟重複值標記');
+            } else {
+                tableBody.querySelectorAll('td.dup-cell').forEach(td => {
+                    td.classList.remove('dup-cell');
+                    td.title = td.textContent;
+                });
+                showToast('已關閉重複值標記');
+            }
         });
 
         dropZone.addEventListener('click', () => fileInput.click());
@@ -770,6 +804,8 @@
             dataTable.classList.add('hidden');
             toolbar.classList.add('hidden');
             emptyState.style.display = 'flex';
+            // 清除重複值標記（保留開關狀態）
+            tableBody.querySelectorAll('td.dup-cell').forEach(td => td.classList.remove('dup-cell'));
         }
 
         function copyToClipboard(text) {
@@ -1174,7 +1210,7 @@
             markTruncatedCells();
         }
 
-        // 在 td 被截斷時更新 title，提示可點擊展開
+        // 在 td 被截斷時更新 title，提示可點擊展開；同時套用重複值標記
         function markTruncatedCells() {
             requestAnimationFrame(() => {
                 tableBody.querySelectorAll('td').forEach(td => {
@@ -1183,6 +1219,54 @@
                         td.title = `${txt}\n\n（被截斷，點擊查看完整內容）`;
                     }
                 });
+                applyDupHighlightDOM();
+            });
+        }
+
+        function updateDupHighlightBtn() {
+            if (dupHighlightEnabled) {
+                dupHighlightBtn.className = 'bg-amber-400 border border-amber-400 text-white hover:bg-amber-500 px-3 py-2 rounded-md text-sm font-medium shadow-sm flex items-center h-[38px]';
+                dupHighlightBtn.title = '關閉重複值標記';
+            } else {
+                dupHighlightBtn.className = 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-3 py-2 rounded-md text-sm font-medium shadow-sm flex items-center h-[38px]';
+                dupHighlightBtn.title = '標記重複值（同欄中相同的值）';
+            }
+        }
+
+        function buildDupMap() {
+            const colMaps = new Map();
+            for (let i = 0; i < headers.length; i++) {
+                const freq = new Map();
+                currentData.forEach(row => {
+                    const v = String(row[i] ?? '').trim();
+                    if (!v) return;
+                    freq.set(v, (freq.get(v) || 0) + 1);
+                });
+                const dups = new Map();
+                freq.forEach((count, val) => { if (count >= 2) dups.set(val, count); });
+                if (dups.size > 0) colMaps.set(i, dups);
+            }
+            return colMaps;
+        }
+
+        function applyDupHighlightDOM() {
+            tableBody.querySelectorAll('td.dup-cell').forEach(td => td.classList.remove('dup-cell'));
+            if (!dupHighlightEnabled || !currentData.length || !headers.length) return;
+            const dupMap = buildDupMap();
+            tableBody.querySelectorAll('tr').forEach(tr => {
+                const cells = tr.querySelectorAll('td');
+                // cells[0] = 行號欄，cells[1+] = 資料欄
+                for (let i = 1; i < cells.length; i++) {
+                    const colDups = dupMap.get(i - 1);
+                    if (!colDups) continue;
+                    const val = String(cells[i].textContent ?? '').trim();
+                    if (!val) continue;
+                    const count = colDups.get(val);
+                    if (count >= 2) {
+                        cells[i].classList.add('dup-cell');
+                        cells[i].title = `此值在本欄出現 ${count} 次`;
+                    }
+                }
             });
         }
 
