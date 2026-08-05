@@ -146,6 +146,21 @@
         .stat-label { color: #6b7280; }
         .stat-value { color: #111827; font-weight: 600; font-family: ui-monospace, monospace; }
 
+        /* Top 5 頻率長條：鋪在整列底下當背景，文字與百分比照常疊在上面 */
+        .freq-row { position: relative; padding-left: 6px; padding-right: 6px; }
+        .freq-row::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 2px;
+            bottom: 2px;
+            width: var(--freq-bar, 0%);
+            background: linear-gradient(90deg, #e0e7ff, #eef2ff);
+            border-radius: 4px;
+            z-index: 0;
+        }
+        .freq-row > * { position: relative; z-index: 1; }
+
         /* 快速鍵說明 modal */
         .kbd {
             display: inline-block;
@@ -2099,6 +2114,19 @@
             colStatsModal.classList.remove('hidden');
         }
 
+        // 唯一值數量 + 出現頻率前 5 名
+        function buildFreq(values) {
+            const freq = new Map();
+            values.forEach(v => {
+                const k = String(v);
+                freq.set(k, (freq.get(k) || 0) + 1);
+            });
+            return {
+                uniqueCount: freq.size,
+                top5: [...freq.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5)
+            };
+        }
+
         function computeColStats(colIndex) {
             const total = currentData.length;
             const values = currentData.map(row => row[colIndex]);
@@ -2110,7 +2138,16 @@
             const numbers = nonEmpty.map(toNumber).filter(n => n !== null);
             const isNumeric = nonEmpty.length > 0 && (numbers.length / nonEmpty.length) >= 0.8;
 
-            const stats = { total, empty, nonEmptyCount: nonEmpty.length, isNumeric };
+            // 日期偵測：數字欄優先判斷，避免「年份」這種純數字欄被當成日期
+            const dateEntries = isNumeric ? [] : nonEmpty
+                .map(v => ({ ts: toDateTs(v), raw: String(v) }))
+                .filter(e => e.ts !== null);
+            const isDate = dateEntries.length > 0 && (dateEntries.length / nonEmpty.length) >= 0.8;
+
+            const stats = {
+                total, empty, nonEmptyCount: nonEmpty.length, isNumeric, isDate,
+                type: isNumeric ? 'numeric' : (isDate ? 'date' : 'text')
+            };
 
             if (isNumeric && numbers.length > 0) {
                 const sorted = [...numbers].sort((a, b) => a - b);
@@ -2124,17 +2161,22 @@
                     : sorted[(sorted.length - 1) / 2];
                 stats.numericCount = numbers.length;
                 stats.nonNumericCount = nonEmpty.length - numbers.length;
+            } else if (isDate) {
+                // 日期統計
+                let earliest = dateEntries[0], latest = dateEntries[0];
+                dateEntries.forEach(e => {
+                    if (e.ts < earliest.ts) earliest = e;
+                    if (e.ts > latest.ts) latest = e;
+                });
+                stats.dateCount = dateEntries.length;
+                stats.nonDateCount = nonEmpty.length - dateEntries.length;
+                stats.earliest = earliest.raw;
+                stats.latest = latest.raw;
+                stats.spanDays = Math.round((latest.ts - earliest.ts) / 86400000);
+                Object.assign(stats, buildFreq(nonEmpty));
             } else {
                 // 文字統計
-                const freq = new Map();
-                nonEmpty.forEach(v => {
-                    const k = String(v);
-                    freq.set(k, (freq.get(k) || 0) + 1);
-                });
-                stats.uniqueCount = freq.size;
-                stats.top5 = [...freq.entries()]
-                    .sort((a, b) => b[1] - a[1])
-                    .slice(0, 5);
+                Object.assign(stats, buildFreq(nonEmpty));
 
                 // 文字長度（以字元數計，emoji 算一個字）
                 if (nonEmpty.length > 0) {
@@ -2164,10 +2206,19 @@
                 return parseFloat(n.toFixed(4)).toLocaleString();
             };
             const pct = (n, base) => base > 0 ? ` (${(n / base * 100).toFixed(1)}%)` : '';
+            const spanText = (days) => {
+                if (days === 0) return '同一天';
+                if (days < 365) return `${fmt(days)} 天`;
+                return `${fmt(days)} 天<span class="ml-2 font-normal text-gray-400">約 ${(days / 365.25).toFixed(1)} 年</span>`;
+            };
 
-            colStatsTypeTag.innerHTML = s.isNumeric
-                ? '<span class="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-700">數字欄</span>'
-                : '<span class="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-amber-100 text-amber-700">文字欄</span>';
+            const TYPE_TAGS = {
+                numeric: ['數字欄', 'bg-blue-100 text-blue-700'],
+                date: ['日期欄', 'bg-emerald-100 text-emerald-700'],
+                text: ['文字欄', 'bg-amber-100 text-amber-700']
+            };
+            const [tagText, tagClass] = TYPE_TAGS[s.type] || TYPE_TAGS.text;
+            colStatsTypeTag.innerHTML = `<span class="inline-block px-2 py-0.5 rounded text-xs font-semibold ${tagClass}">${tagText}</span>`;
 
             const rows = [];
             rows.push(`<div class="stat-row"><span class="stat-label">總筆數</span><span class="stat-value">${fmt(s.total)}</span></div>`);
@@ -2184,6 +2235,16 @@
                 rows.push(`<div class="stat-row"><span class="stat-label">平均</span><span class="stat-value">${fmt(s.mean)}</span></div>`);
                 rows.push(`<div class="stat-row"><span class="stat-label">中位數</span><span class="stat-value">${fmt(s.median)}</span></div>`);
                 rows.push(`<div class="stat-row"><span class="stat-label">總和</span><span class="stat-value">${fmt(s.sum)}</span></div>`);
+            } else if (s.isDate) {
+                rows.push(`<div class="stat-row"><span class="stat-label">有效日期</span><span class="stat-value">${fmt(s.dateCount)}${pct(s.dateCount, s.total)}</span></div>`);
+                if (s.nonDateCount > 0) {
+                    rows.push(`<div class="stat-row"><span class="stat-label">非日期</span><span class="stat-value">${fmt(s.nonDateCount)}</span></div>`);
+                }
+                rows.push(`<div class="stat-row"><span class="stat-label">唯一值</span><span class="stat-value">${fmt(s.uniqueCount)}</span></div>`);
+                rows.push('<div class="h-2"></div>');
+                rows.push(`<div class="stat-row"><span class="stat-label">最早</span><span class="stat-value">${escapeHtml(s.earliest)}</span></div>`);
+                rows.push(`<div class="stat-row"><span class="stat-label">最晚</span><span class="stat-value">${escapeHtml(s.latest)}</span></div>`);
+                rows.push(`<div class="stat-row"><span class="stat-label">時間跨度</span><span class="stat-value">${spanText(s.spanDays)}</span></div>`);
             } else {
                 rows.push(`<div class="stat-row"><span class="stat-label">唯一值</span><span class="stat-value">${fmt(s.uniqueCount)}</span></div>`);
                 if (s.maxLen !== undefined) {
@@ -2196,13 +2257,20 @@
                     rows.push(`<div class="stat-row"><span class="stat-label shrink-0 mr-3">最短文字</span><span class="stat-value truncate min-w-0" title="${escapeHtml(s.minLenValue)}">${fmt(s.minLen)} 字<span class="ml-2 font-normal text-gray-400">${preview(s.minLenValue)}</span></span></div>`);
                     rows.push(`<div class="stat-row"><span class="stat-label">平均長度</span><span class="stat-value">${fmt(s.avgLen)} 字</span></div>`);
                 }
-                if (s.top5 && s.top5.length > 0) {
-                    rows.push('<div class="mt-3 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">Top 5 出現頻率</div>');
-                    s.top5.forEach(([k, c]) => {
-                        const display = k.length > 40 ? k.slice(0, 40) + '…' : k;
-                        rows.push(`<div class="stat-row"><span class="stat-label truncate flex-1 mr-3" title="${escapeHtml(k)}">${escapeHtml(display)}</span><span class="stat-value whitespace-nowrap">${fmt(c)}${pct(c, s.nonEmptyCount)}</span></div>`);
-                    });
-                }
+            }
+
+            // Top 5 出現頻率（數字欄以外都顯示）
+            // 每個值都只出現一次時沒有頻率可言，整段省略
+            if (s.top5 && s.top5.length > 0 && s.top5[0][1] > 1) {
+                rows.push('<div class="mt-3 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">Top 5 出現頻率</div>');
+                s.top5.forEach(([k, c]) => {
+                    const display = k.length > 40 ? k.slice(0, 40) + '…' : k;
+                    // 長條長度＝實際佔比，跟右側百分比同一個基準，圖形與數字不會互相矛盾。
+                    // 佔比極小時給 1.5% 保底寬度，免得細到完全看不見。
+                    const rawPct = s.nonEmptyCount > 0 ? (c / s.nonEmptyCount * 100) : 0;
+                    const barPct = rawPct > 0 ? Math.max(rawPct, 1.5) : 0;
+                    rows.push(`<div class="stat-row freq-row" style="--freq-bar:${barPct.toFixed(2)}%"><span class="stat-label truncate flex-1 mr-3" title="${escapeHtml(k)}">${escapeHtml(display)}</span><span class="stat-value whitespace-nowrap">${fmt(c)}${pct(c, s.nonEmptyCount)}</span></div>`);
+                });
             }
             colStatsContent.innerHTML = rows.join('');
         }
