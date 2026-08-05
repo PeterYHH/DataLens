@@ -433,6 +433,10 @@
                             <i class="fas fa-folder-open sm:hidden"></i><span class="hidden sm:inline">重選</span>
                         </button>
 
+                        <button id="exportScopeBtn" class="hidden items-center border border-gray-300 text-gray-600 hover:bg-gray-100 px-2 py-1 rounded text-xs font-medium whitespace-nowrap mr-1" title="切換匯出範圍">
+                            <i class="fas fa-filter mr-1 text-[10px]"></i><span id="exportScopeLabel">目前結果</span>
+                        </button>
+
                         <button id="exportBtn" class="text-green-600 hover:bg-green-50 px-2 py-1 rounded text-sm font-medium whitespace-nowrap" title="匯出為 Excel">
                             <i class="fas fa-file-excel"></i>
                         </button>
@@ -641,6 +645,8 @@
         const exportCsvBtn = document.getElementById('exportCsvBtn');
         const exportJsonBtn = document.getElementById('exportJsonBtn');
         const exportMdBtn = document.getElementById('exportMdBtn');
+        const exportScopeBtn = document.getElementById('exportScopeBtn');
+        const exportScopeLabel = document.getElementById('exportScopeLabel');
         const colVisBtn = document.getElementById('colVisBtn');
         const colVisMenu = document.getElementById('colVisMenu');
         const colVisOptions = document.getElementById('colVisOptions');
@@ -695,6 +701,7 @@
         let rowMarkPickerOrigIdx = -1;
         let dupHighlightEnabled = false;
         let displayedRows = [];
+        let exportScope = 'view'; // 'view' = 只匯出目前搜尋/篩選結果，'all' = 匯出全部
         let currentPage = 1;
         let pageSize = 100;
         let colFilters = new Map(); // colIndex → Set<string> 已選的值
@@ -978,9 +985,40 @@
         exportJsonBtn.addEventListener('click', () => exportData('json'));
         exportMdBtn.addEventListener('click', () => exportData('md'));
 
+        exportScopeBtn.addEventListener('click', () => {
+            exportScope = (exportScope === 'view') ? 'all' : 'view';
+            updateExportScopeBtn();
+        });
+
+        // 只有在「目前結果 ≠ 全部資料」時才顯示切換鈕，否則沒有意義
+        function updateExportScopeBtn() {
+            const isSubset = displayedRows.length !== currentData.length;
+            exportScopeBtn.classList.toggle('hidden', !isSubset);
+            exportScopeBtn.classList.toggle('inline-flex', isSubset);
+            if (!isSubset) return;
+
+            const viewMode = exportScope === 'view';
+            exportScopeLabel.textContent = viewMode
+                ? `目前結果 ${displayedRows.length.toLocaleString()} 筆`
+                : `全部 ${currentData.length.toLocaleString()} 筆`;
+            exportScopeBtn.title = viewMode
+                ? '匯出範圍：只匯出目前搜尋／篩選的結果（點擊改為全部）'
+                : '匯出範圍：匯出全部資料（點擊改為只匯出目前結果）';
+            exportScopeBtn.classList.toggle('border-indigo-400', viewMode);
+            exportScopeBtn.classList.toggle('text-indigo-600', viewMode);
+            exportScopeBtn.classList.toggle('bg-indigo-50', viewMode);
+        }
+
         function exportData(type) {
             if (!currentData || currentData.length === 0) {
                 alert('沒有資料可以匯出');
+                return;
+            }
+
+            // 匯出範圍：預設跟著畫面走（含搜尋、欄位篩選、排序結果）
+            const sourceRows = (exportScope === 'view') ? displayedRows : currentData;
+            if (sourceRows.length === 0) {
+                alert('目前的搜尋／篩選結果沒有資料，請調整條件或切換匯出範圍為「全部」');
                 return;
             }
 
@@ -995,7 +1033,7 @@
 
             // Create new headers and data arrays based on visible indices
             const exportHeaders = visibleIndices.map(i => headers[i]);
-            const exportRows = currentData.map(row => visibleIndices.map(i => row[i]));
+            const exportRows = sourceRows.map(row => visibleIndices.map(i => row[i]));
             
             const now = new Date();
             // Generate timestamp with seconds: YYYYMMDD_HHMMSS
@@ -1092,6 +1130,8 @@
             emptyState.style.display = 'flex';
             tableBody.querySelectorAll('td.dup-cell').forEach(td => td.classList.remove('dup-cell'));
             displayedRows = [];
+            exportScope = 'view';
+            updateExportScopeBtn();
             currentPage = 1;
             paginationBar.classList.add('hidden');
             pageNavControls.classList.add('hidden');
@@ -1558,7 +1598,7 @@
         }
 
         function filterTable(term) {
-            const baseRows = applyColFilters(currentData);
+            const baseRows = getSortedBaseRows();
             const hasFilter = colFilters.size > 0;
             if (!term || !term.trim()) {
                 renderTableBodyOnly(baseRows);
@@ -1798,6 +1838,7 @@
             });
             tableBody.appendChild(fragment);
             updatePaginationBar(total);
+            updateExportScopeBtn();
             markTruncatedCells();
         }
 
@@ -1849,11 +1890,14 @@
             applySortAndRender();
         }
 
+        // 欄位篩選 + 排序後的資料，搜尋以此為基礎，才不會一搜尋就掉排序
+        function getSortedBaseRows() {
+            const base = [...applyColFilters(currentData)];
+            return sortKeys.length === 0 ? base : base.sort((a, b) => compareByKeys(a, b, sortKeys));
+        }
+
         function applySortAndRender() {
-            const base = applyColFilters(currentData);
-            const sorted = sortKeys.length === 0
-                ? [...base]
-                : [...base].sort((a, b) => compareByKeys(a, b, sortKeys));
+            const sorted = getSortedBaseRows();
 
             // 更新表頭視覺狀態
             const ths = tableHeader.querySelectorAll('th');
@@ -1870,18 +1914,52 @@
                 : `共 ${sorted.length} 筆`;
         }
 
+        // 嚴格數字判定：整串必須是數字才算，避免 "2026-08-05" 被 parseFloat 讀成 2026、
+        // "007-A" 被讀成 7。允許千分位逗號、小數、正負號、科學記號。
+        const STRICT_NUM_RE = /^[+-]?(\d{1,3}(,\d{3})+|\d+)(\.\d+)?([eE][+-]?\d+)?$/;
+        function toNumber(v) {
+            const s = String(v ?? '').trim();
+            if (!STRICT_NUM_RE.test(s)) return null;
+            const n = parseFloat(s.replace(/,/g, ''));
+            return Number.isFinite(n) ? n : null;
+        }
+
+        // 日期判定：YYYY-MM-DD / YYYY/MM/DD / YYYY.MM.DD，可帶 T 或空白後接時間
+        // 只認年在前的格式，避免 03/04/2026 這種美式／歐式無法區分的誤判
+        const DATE_RE = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[T ](\d{1,2}):(\d{2})(?::(\d{2}))?)?/;
+        function toDateTs(v) {
+            const m = DATE_RE.exec(String(v ?? '').trim());
+            if (!m) return null;
+            const month = +m[2], day = +m[3];
+            if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+            return Date.UTC(+m[1], month - 1, day, +(m[4] || 0), +(m[5] || 0), +(m[6] || 0));
+        }
+
+        // 單一值比較：數字 → 日期 → 自然排序字串（"item2" 會排在 "item10" 前面）
+        function compareValues(valA, valB) {
+            const numA = toNumber(valA), numB = toNumber(valB);
+            if (numA !== null && numB !== null) return numA - numB;
+
+            const dateA = toDateTs(valA), dateB = toDateTs(valB);
+            if (dateA !== null && dateB !== null) return dateA - dateB;
+
+            return String(valA).localeCompare(String(valB), undefined, { numeric: true });
+        }
+
         function compareByKeys(a, b, keys) {
             for (const { col, asc } of keys) {
                 const valA = a[col] ?? '';
                 const valB = b[col] ?? '';
-                const numA = parseFloat(valA);
-                const numB = parseFloat(valB);
-                let cmp;
-                if (!isNaN(numA) && !isNaN(numB) && !/^\s*$/.test(String(valA)) && !/^\s*$/.test(String(valB))) {
-                    cmp = numA - numB;
-                } else {
-                    cmp = String(valA).localeCompare(String(valB));
+
+                // 空值一律排在最後，不隨升冪／降冪翻轉
+                const emptyA = String(valA).trim() === '';
+                const emptyB = String(valB).trim() === '';
+                if (emptyA || emptyB) {
+                    if (emptyA && emptyB) continue;
+                    return emptyA ? 1 : -1;
                 }
+
+                const cmp = compareValues(valA, valB);
                 if (cmp !== 0) return asc ? cmp : -cmp;
             }
             return 0;
@@ -2028,12 +2106,8 @@
             const empty = values.filter(v => v === null || v === undefined || String(v).trim() === '').length;
             const nonEmpty = values.filter(v => v !== null && v !== undefined && String(v).trim() !== '');
 
-            // 嘗試解析為數字
-            const numericPairs = nonEmpty.map(v => {
-                const n = parseFloat(v);
-                return (!isNaN(n) && isFinite(n) && /^-?[\d,.\sEe+-]+$/.test(String(v).trim())) ? n : null;
-            });
-            const numbers = numericPairs.filter(n => n !== null);
+            // 嘗試解析為數字（用嚴格判定，日期字串不會被誤認成數字）
+            const numbers = nonEmpty.map(toNumber).filter(n => n !== null);
             const isNumeric = nonEmpty.length > 0 && (numbers.length / nonEmpty.length) >= 0.8;
 
             const stats = { total, empty, nonEmptyCount: nonEmpty.length, isNumeric };
